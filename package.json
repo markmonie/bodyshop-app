@@ -3,11 +3,8 @@
     with:
       node-version: 20
 
-  - name: Install dependencies
-    run: npm install
-
+  - name: Install dependencies 
   - name: Build
-    run: npm run build
     env:
        CI: false
 
