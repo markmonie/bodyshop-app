@@ -1,21 +1,51 @@
-- name: Set up Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: 20
+name: Deploy React App to GitHub Pages
 
-  - name: Install dependencies 
-  - name: Build
-    env:
-       CI: false
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-  - name: Setup Pages
-    uses: actions/configure-pages@v5
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
-  - name: Upload artifact
-    uses: actions/upload-pages-artifact@v3
-    with:
-      path: './build'
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
-  - name: Deploy to GitHub Pages
-    id: deployment
-    uses: actions/deploy-pages@v4
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run
+
+      - name: Build
+        run: npm run build
+        env:
+           CI: false
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './build'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
