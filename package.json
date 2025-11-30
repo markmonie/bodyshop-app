@@ -1,4 +1,4 @@
-name: Deploy React App to GitHub Pages
+     name: Deploy React App to GitHub Pages
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run
+        run: npm install
 
       - name: Build
         run: npm run build
