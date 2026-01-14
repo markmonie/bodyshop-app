@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
 
-// --- YOUR TRIPLE MMM CONFIG ---
+// --- TRIPLE MMM CONFIG ---
 const firebaseConfig = {
   apiKey: "AIzaSyDVfPvFLoL5eqQ3WQB96n08K3thdclYXRQ",
   authDomain: "triple-mmm-body-repairs.firebaseapp.com",
@@ -14,7 +14,6 @@ const firebaseConfig = {
   measurementId: "G-NRDPCR0SR2"
 };
 
-// Initialize
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -22,96 +21,133 @@ const auth = getAuth(app);
 const EstimateApp = ({ userId }) => {
     const [name, setName] = useState('');
     const [reg, setReg] = useState('');
-    const [repair, setRepair] = useState('');
-    const [items, setItems] = useState([]); // Current repairs list
-    const [savedJobs, setSavedJobs] = useState([]); // Jobs from database
+    const [itemDesc, setItemDesc] = useState('');
+    const [itemCost, setItemCost] = useState('');
+    const [items, setItems] = useState([]);
+    
+    // Financial Settings
+    const [laborHours, setLaborHours] = useState('');
+    const [laborRate, setLaborRate] = useState('50');
+    const [vatRate, setVatRate] = useState('0');
+    const [excess, setExcess] = useState(''); // NEW: Customer Excess
+    
+    const [savedEstimates, setSavedEstimates] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Load saved jobs from Database
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setSavedJobs(jobs);
-        });
-        return () => unsubscribe();
+        return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
 
     const addItem = () => {
-        if (!repair) return;
-        setItems([...items, repair]);
-        setRepair('');
+        if (!itemDesc) return;
+        setItems([...items, { desc: itemDesc, cost: parseFloat(itemCost) || 0 }]);
+        setItemDesc('');
+        setItemCost('');
     };
 
-    const saveJob = async () => {
-        if (!name || !reg) return alert("Please enter Name and Reg");
+    const calculateTotal = (currentItems = items) => {
+        const parts = currentItems.reduce((acc, i) => acc + i.cost, 0);
+        const labor = (parseFloat(laborHours) || 0) * (parseFloat(laborRate) || 0);
+        const sub = parts + labor;
+        const vatPercent = parseFloat(vatRate) || 0;
+        const vat = sub * (vatPercent / 100);
+        const grandTotal = sub + vat;
+        const excessAmount = parseFloat(excess) || 0;
+        const finalDue = grandTotal - excessAmount;
+        
+        return { parts, labor, sub, vat, grandTotal, excessAmount, finalDue };
+    };
+
+    const totals = calculateTotal();
+
+    const saveEstimate = async () => {
+        if (!name || !reg) return alert("Enter Customer Details");
         setLoading(true);
-        try {
-            await addDoc(collection(db, 'estimates'), {
-                customerName: name,
-                vehicleReg: reg,
-                repairs: items,
-                createdAt: serverTimestamp(),
-                createdBy: userId
-            });
-            // Reset form
-            setName('');
-            setReg('');
-            setItems([]);
-            alert("Job Saved Successfully!");
-        } catch (error) {
-            console.error(error);
-            alert("Error saving job");
-        }
+        await addDoc(collection(db, 'estimates'), {
+            customer: name, reg, items, laborHours, laborRate, vatRate, excess,
+            totals: calculateTotal(),
+            createdAt: serverTimestamp(), createdBy: userId
+        });
+        setName(''); setReg(''); setItems([]); setLaborHours(''); setExcess('');
         setLoading(false);
     };
 
     return (
-        <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif' }}>
-            <h1 style={{ color: '#2563eb' }}>Triple MMM Estimate Manager</h1>
-            
-            {/* INPUT FORM */}
-            <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
-                <h3>New Job Sheet</h3>
-                <input 
-                    style={{ display: 'block', width: '100%', padding: '8px', marginBottom: '10px' }} 
-                    placeholder="Customer Name" 
-                    value={name} onChange={e => setName(e.target.value)} 
-                />
-                <input 
-                    style={{ display: 'block', width: '100%', padding: '8px', marginBottom: '10px' }} 
-                    placeholder="Vehicle Reg (e.g. AB12 CDE)" 
-                    value={reg} onChange={e => setReg(e.target.value)} 
-                />
-                
-                <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
-                    <input 
-                        style={{ flexGrow: 1, padding: '8px' }} 
-                        placeholder="Add Repair Item (e.g. Bumper Scratch)" 
-                        value={repair} onChange={e => setRepair(e.target.value)} 
-                    />
-                    <button onClick={addItem} style={{ background: '#4b5563', color: 'white', border: 'none', padding: '8px 15px' }}>Add</button>
-                </div>
-
-                <ul style={{ marginBottom: '15px' }}>
-                    {items.map((item, index) => <li key={index}>{item}</li>)}
-                </ul>
-
-                <button 
-                    onClick={saveJob} 
-                    disabled={loading}
-                    style={{ width: '100%', padding: '10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '5px', fontSize: '16px', fontWeight: 'bold' }}>
-                    {loading ? 'Saving...' : 'SAVE JOB TO CLOUD'}
-                </button>
+        <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto', fontFamily: 'Segoe UI, sans-serif' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #2563eb', paddingBottom: '10px' }}>
+                <h1 style={{ margin: 0, color: '#2563eb' }}>Triple MMM Estimator</h1>
+                <button onClick={() => window.print()} style={{ padding: '8px 16px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Print / PDF</button>
             </div>
 
-            {/* SAVED JOBS LIST */}
-            <h3>Recent Jobs (Live from Database)</h3>
-            <div>
-                {savedJobs.map(job => (
-                    <div key={job.id} style={{ background: '#f3f4f6', padding: '10px', marginBottom: '10px', borderRadius: '5px' }}>
-                        <div style={{ fontWeight: 'bold', fontSize: '1.1em' }}>{job.customerName} ({job.vehicleReg})</div>
-                        <div style={{ color: '#666', fontSize: '0.9em' }}>Repairs: {job.repairs?.join(', ') || 'None'}</div>
+            {/* CUSTOMER DETAILS */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '20px' }}>
+                <input placeholder="Customer Name" value={name} onChange={e => setName(e.target.value)} style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '4px' }} />
+                <input placeholder="Vehicle Reg" value={reg} onChange={e => setReg(e.target.value)} style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '4px' }} />
+            </div>
+
+            {/* REPAIR ITEMS */}
+            <div style={{ marginTop: '20px', background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <h3>Repair Items & Costs</h3>
+                <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+                    <input placeholder="Description (e.g. Bumper)" value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '8px' }} />
+                    <input type="number" placeholder="Cost (£)" value={itemCost} onChange={e => setItemCost(e.target.value)} style={{ width: '80px', padding: '8px' }} />
+                    <button onClick={addItem} style={{ background: '#2563eb', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px' }}>Add</button>
+                </div>
+                {items.map((item, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #eee' }}>
+                        <span>{item.desc}</span>
+                        <span>£{item.cost.toFixed(2)}</span>
+                    </div>
+                ))}
+            </div>
+
+            {/* LABOR & TOTALS */}
+            <div style={{ marginTop: '20px', textAlign: 'right' }}>
+                <div style={{ marginBottom: '5px' }}>
+                    <label>Labor Hours: </label>
+                    <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{ width: '60px', padding: '5px' }} />
+                    x £{laborRate}/hr
+                </div>
+                
+                <div style={{ marginBottom: '15px', color: '#666' }}>
+                    <label>VAT Rate (%): </label>
+                    <input type="number" value={vatRate} onChange={e => setVatRate(e.target.value)} style={{ width: '60px', padding: '5px', border: '1px solid #ccc' }} />
+                </div>
+
+                <div style={{ fontSize: '1.1em', lineHeight: '1.5', borderTop: '2px solid #eee', paddingTop: '10px' }}>
+                    <div>Parts: £{totals.parts.toFixed(2)}</div>
+                    <div>Labor: £{totals.labor.toFixed(2)}</div>
+                    <div>Subtotal: £{totals.sub.toFixed(2)}</div>
+                    <div>VAT ({vatRate}%): £{totals.vat.toFixed(2)}</div>
+                    <div style={{ fontWeight: 'bold' }}>Grand Total: £{totals.grandTotal.toFixed(2)}</div>
+                    
+                    {/* NEW: EXCESS BOX */}
+                    <div style={{ marginTop: '10px', color: '#dc2626' }}>
+                        <label>Less Excess: -£</label>
+                        <input type="number" value={excess} onChange={e => setExcess(e.target.value)} style={{ width: '80px', padding: '5px', border: '1px solid #dc2626', color: '#dc2626', fontWeight: 'bold' }} />
+                    </div>
+
+                    <div style={{ fontSize: '1.5em', fontWeight: 'bold', color: '#16a34a', marginTop: '10px', borderTop: '2px solid #16a34a', paddingTop: '5px' }}>
+                        Balance Due: £{totals.finalDue.toFixed(2)}
+                    </div>
+                </div>
+            </div>
+
+            <button onClick={saveEstimate} disabled={loading} style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontSize: '1.2em', cursor: 'pointer' }}>
+                {loading ? 'Saving...' : 'SAVE ESTIMATE'}
+            </button>
+
+            {/* HISTORY */}
+            <h3 style={{ marginTop: '40px', borderBottom: '1px solid #ccc' }}>Saved Estimates</h3>
+            <div style={{ display: 'grid', gap: '10px' }}>
+                {savedEstimates.map(est => (
+                    <div key={est.id} style={{ background: 'white', border: '1px solid #ddd', padding: '15px', borderRadius: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                        <div>
+                            <strong>{est.customer}</strong> ({est.reg})
+                            <div style={{ fontSize: '0.9em', color: '#666' }}>{est.items?.length} items</div>
+                        </div>
+                        <div style={{ fontWeight: 'bold', color: '#2563eb' }}>£{est.totals?.finalDue.toFixed(2)}</div>
                     </div>
                 ))}
             </div>
@@ -119,17 +155,11 @@ const EstimateApp = ({ userId }) => {
     );
 };
 
-// Auth Wrapper
 const App = () => {
-    const [userId, setUserId] = useState(null);
-    useEffect(() => {
-        onAuthStateChanged(auth, (user) => {
-            if (user) setUserId(user.uid);
-            else signInAnonymously(auth);
-        });
-    }, []);
-    if (!userId) return <div style={{padding:'20px'}}>Connecting to Triple MMM Database...</div>;
-    return <EstimateApp userId={userId} />;
+    const [u, sU] = useState(null);
+    useEffect(() => onAuthStateChanged(auth, (user) => user ? sU(user.uid) : signInAnonymously(auth)), []);
+    if (!u) return <div style={{padding:'20px'}}>Loading System...</div>;
+    return <EstimateApp userId={u} />;
 };
 
 export default App;
