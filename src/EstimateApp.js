@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-import axios from 'axios';
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
 
-// --- YOUR TRIPLE MMM FIREBASE CONFIGURATION ---
+// --- YOUR TRIPLE MMM CONFIG ---
 const firebaseConfig = {
   apiKey: "AIzaSyDVfPvFLoL5eqQ3WQB96n08K3thdclYXRQ",
   authDomain: "triple-mmm-body-repairs.firebaseapp.com",
@@ -16,64 +14,121 @@ const firebaseConfig = {
   measurementId: "G-NRDPCR0SR2"
 };
 
-// --- INITIALIZE FIREBASE ---
+// Initialize
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app);
 
-// --- MAIN APP COMPONENT ---
 const EstimateApp = ({ userId }) => {
-    const [status, setStatus] = useState('System Ready');
+    const [name, setName] = useState('');
+    const [reg, setReg] = useState('');
+    const [repair, setRepair] = useState('');
+    const [items, setItems] = useState([]); // Current repairs list
+    const [savedJobs, setSavedJobs] = useState([]); // Jobs from database
+    const [loading, setLoading] = useState(false);
+
+    // Load saved jobs from Database
+    useEffect(() => {
+        const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSavedJobs(jobs);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const addItem = () => {
+        if (!repair) return;
+        setItems([...items, repair]);
+        setRepair('');
+    };
+
+    const saveJob = async () => {
+        if (!name || !reg) return alert("Please enter Name and Reg");
+        setLoading(true);
+        try {
+            await addDoc(collection(db, 'estimates'), {
+                customerName: name,
+                vehicleReg: reg,
+                repairs: items,
+                createdAt: serverTimestamp(),
+                createdBy: userId
+            });
+            // Reset form
+            setName('');
+            setReg('');
+            setItems([]);
+            alert("Job Saved Successfully!");
+        } catch (error) {
+            console.error(error);
+            alert("Error saving job");
+        }
+        setLoading(false);
+    };
 
     return (
-        <div style={{ padding: '20px', fontFamily: 'Segoe UI, sans-serif', maxWidth: '800px', margin: '0 auto' }}>
-            <h1 style={{ borderBottom: '2px solid #333', paddingBottom: '10px' }}>Bodyshop Estimate Manager</h1>
+        <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+            <h1 style={{ color: '#2563eb' }}>Triple MMM Estimate Manager</h1>
             
-            <div style={{ background: '#e0f2fe', padding: '15px', borderRadius: '8px', marginBottom: '20px', color: '#0369a1' }}>
-                <strong>Status:</strong> {status} <br/>
-                <strong>User ID:</strong> {userId}
+            {/* INPUT FORM */}
+            <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                <h3>New Job Sheet</h3>
+                <input 
+                    style={{ display: 'block', width: '100%', padding: '8px', marginBottom: '10px' }} 
+                    placeholder="Customer Name" 
+                    value={name} onChange={e => setName(e.target.value)} 
+                />
+                <input 
+                    style={{ display: 'block', width: '100%', padding: '8px', marginBottom: '10px' }} 
+                    placeholder="Vehicle Reg (e.g. AB12 CDE)" 
+                    value={reg} onChange={e => setReg(e.target.value)} 
+                />
+                
+                <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+                    <input 
+                        style={{ flexGrow: 1, padding: '8px' }} 
+                        placeholder="Add Repair Item (e.g. Bumper Scratch)" 
+                        value={repair} onChange={e => setRepair(e.target.value)} 
+                    />
+                    <button onClick={addItem} style={{ background: '#4b5563', color: 'white', border: 'none', padding: '8px 15px' }}>Add</button>
+                </div>
+
+                <ul style={{ marginBottom: '15px' }}>
+                    {items.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+
+                <button 
+                    onClick={saveJob} 
+                    disabled={loading}
+                    style={{ width: '100%', padding: '10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '5px', fontSize: '16px', fontWeight: 'bold' }}>
+                    {loading ? 'Saving...' : 'SAVE JOB TO CLOUD'}
+                </button>
             </div>
 
-            <fieldset style={{ marginBottom: '20px', padding: '15px', borderRadius: '8px', border: '1px solid #ccc' }}>
-                <legend style={{ fontWeight: 'bold' }}>Customer Details</legend>
-                <input type="text" placeholder="Customer Name" style={{ padding: '8px', width: '100%', marginBottom: '10px' }} />
-                <input type="text" placeholder="Vehicle Reg" style={{ padding: '8px', width: '100%' }} />
-            </fieldset>
-
-            <fieldset style={{ marginBottom: '20px', padding: '15px', borderRadius: '8px', border: '1px solid #ccc' }}>
-                <legend style={{ fontWeight: 'bold' }}>Repair Items</legend>
-                <p style={{ fontStyle: 'italic', color: '#666' }}>Repair items list will appear here.</p>
-                <button style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+ Add Item</button>
-            </fieldset>
-
-            <button style={{ padding: '10px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', fontSize: '16px', cursor: 'pointer' }}>Save Estimate</button>
+            {/* SAVED JOBS LIST */}
+            <h3>Recent Jobs (Live from Database)</h3>
+            <div>
+                {savedJobs.map(job => (
+                    <div key={job.id} style={{ background: '#f3f4f6', padding: '10px', marginBottom: '10px', borderRadius: '5px' }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '1.1em' }}>{job.customerName} ({job.vehicleReg})</div>
+                        <div style={{ color: '#666', fontSize: '0.9em' }}>Repairs: {job.repairs?.join(', ') || 'None'}</div>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };
 
-// --- AUTHENTICATION WRAPPER ---
+// Auth Wrapper
 const App = () => {
     const [userId, setUserId] = useState(null);
-    const [authStatus, setAuthStatus] = useState("Authenticating...");
-
     useEffect(() => {
         onAuthStateChanged(auth, (user) => {
-            if (user) {
-                setUserId(user.uid);
-            } else {
-                signInAnonymously(auth).catch((error) => {
-                    console.error("Auth Error:", error);
-                    setAuthStatus("Error: Could not login to database.");
-                });
-            }
+            if (user) setUserId(user.uid);
+            else signInAnonymously(auth);
         });
     }, []);
-
-    if (!userId) {
-        return <div style={{ padding: '20px' }}><h2>Loading Bodyshop App...</h2><p>{authStatus}</p></div>;
-    }
-
+    if (!userId) return <div style={{padding:'20px'}}>Connecting to Triple MMM Database...</div>;
     return <EstimateApp userId={userId} />;
 };
 
