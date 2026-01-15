@@ -1,25 +1,51 @@
-Skip to content
-Navigation Menu
-bodyshop-app
+name: Deploy React App to GitHub Pages
 
-Code
-Issues
-Pull requests
-Deploy React App to GitHub Pages
-Update GitHub Actions workflow for deployment #46
-Re-run triggered 2 minutes ago
-@markmoniemarkmonie
- f8a5700
-main
-Status
-Failure
-Total duration
-2m 26s
-Artifacts
-–
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
-Annotations
-1 error
-deploy
-Process completed with exit code 1.
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+        env:
+          CI: false
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './build'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
