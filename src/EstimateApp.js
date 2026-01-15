@@ -18,20 +18,13 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// --- STYLES ---
-const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
-const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
-const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
-const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
-const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
-const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
-
 const EstimateApp = ({ userId }) => {
+    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION'
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
 
-    // Inputs (State)
+    // Inputs
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
@@ -40,20 +33,22 @@ const EstimateApp = ({ userId }) => {
     const [mileage, setMileage] = useState('');
     const [makeModel, setMakeModel] = useState('');
 
+    // Line Items
     const [itemDesc, setItemDesc] = useState('');
     const [itemCost, setItemCost] = useState('');
     const [items, setItems] = useState([]);
     
     // Financials
     const [laborHours, setLaborHours] = useState('');
-    const [laborRate, setLaborRate] = useState('50'); // Default but adjustable
+    const [laborRate, setLaborRate] = useState('50');
     const [vatRate, setVatRate] = useState('0');
     const [excess, setExcess] = useState('');
     
+    // System
     const [savedEstimates, setSavedEstimates] = useState([]);
-    const [saveStatus, setSaveStatus] = useState('IDLE');
+    const [saveStatus, setSaveStatus] = useState('IDLE'); // IDLE, SAVING, SUCCESS
 
-    // 1. AUTO-LOAD: When app starts, try to load unsaved work from browser memory
+    // 1. AUTO-LOAD
     useEffect(() => {
         const savedData = localStorage.getItem('triple_mmm_draft');
         if (savedData) {
@@ -62,11 +57,10 @@ const EstimateApp = ({ userId }) => {
             setReg(draft.reg || '');
             setItems(draft.items || []);
             setLaborRate(draft.laborRate || '50');
-            // ... load other fields if needed
         }
     }, []);
 
-    // 2. AUTO-SAVE: Every time you type, save to browser memory
+    // 2. AUTO-SAVE
     useEffect(() => {
         const draft = { name, reg, items, laborRate };
         localStorage.setItem('triple_mmm_draft', JSON.stringify(draft));
@@ -77,7 +71,22 @@ const EstimateApp = ({ userId }) => {
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
 
-    // 3. RECTIFY MISTAKES: Function to remove an item
+    const checkHistory = async (regInput) => {
+        if(regInput.length < 3) return;
+        const q = query(collection(db, 'estimates'), where("reg", "==", regInput), orderBy('createdAt', 'desc'));
+        try {
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+                const prev = querySnapshot.docs[0].data();
+                setMakeModel(prev.makeModel || ''); 
+                setName(prev.customer || '');
+                setPhone(prev.phone || '');
+                setEmail(prev.email || '');
+                setAddress(prev.address || '');
+            }
+        } catch(e) { }
+    };
+
     const removeItem = (indexToRemove) => {
         setItems(items.filter((_, index) => index !== indexToRemove));
     };
@@ -111,7 +120,7 @@ const EstimateApp = ({ userId }) => {
             setReg(''); setMileage(''); setMakeModel('');
             setItems([]); setLaborHours(''); setExcess('');
             setSaveStatus('IDLE');
-            localStorage.removeItem('triple_mmm_draft'); // Clear the auto-save
+            localStorage.removeItem('triple_mmm_draft'); 
         }
     }
 
@@ -119,41 +128,41 @@ const EstimateApp = ({ userId }) => {
         if (!name || !reg) return alert("Enter Customer Name & Reg");
         setSaveStatus('SAVING');
         
-        let finalInvNum = invoiceNum;
-        if(type === 'INVOICE' && !finalInvNum) {
-            finalInvNum = `INV-${1000 + savedEstimates.length + 1}`;
-            setInvoiceNum(finalInvNum);
-            setInvoiceDate(new Date().toLocaleDateString());
-            setMode('INVOICE');
-        }
+        try {
+            let finalInvNum = invoiceNum;
+            if(type === 'INVOICE' && !finalInvNum) {
+                finalInvNum = `INV-${1000 + savedEstimates.length + 1}`;
+                setInvoiceNum(finalInvNum);
+                setInvoiceDate(new Date().toLocaleDateString());
+                setMode('INVOICE');
+            }
 
-        await addDoc(collection(db, 'estimates'), {
-            type: type,
-            invoiceNumber: finalInvNum,
-            customer: name, address, phone, email,
-            reg, mileage, makeModel,
-            items, laborHours, laborRate, vatRate, excess,
-            totals: calculateTotal(),
-            createdAt: serverTimestamp(), createdBy: userId
-        });
-        
-        setSaveStatus('SUCCESS');
-        setTimeout(() => setSaveStatus('IDLE'), 3000); 
+            await addDoc(collection(db, 'estimates'), {
+                type: type,
+                invoiceNumber: finalInvNum,
+                customer: name, address, phone, email,
+                reg, mileage, makeModel,
+                items, laborHours, laborRate, vatRate, excess,
+                totals: calculateTotal(),
+                createdAt: serverTimestamp(), createdBy: userId
+            });
+            
+            setSaveStatus('SUCCESS');
+            setTimeout(() => setSaveStatus('IDLE'), 3000); 
+        } catch (error) {
+            console.error("Error saving:", error);
+            alert("Error saving: " + error.message);
+            setSaveStatus('IDLE');
+        }
     };
 
     return (
         <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
-            {/* HEADER */}
+            {/* LOGO HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #cc0000', paddingBottom: '20px', marginBottom: '30px' }}>
-                <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
-                    <div style={{ fontSize: '3em', fontWeight: '900', letterSpacing: '-2px', lineHeight:'0.9' }}>
-                        <span style={{color: 'black'}}>TRIPLE</span><br/>
-                        <span style={{color: '#cc0000'}}>MMM</span>
-                    </div>
-                    <div style={{ borderLeft: '2px solid #333', paddingLeft: '20px', height: '60px', display: 'flex', alignItems: 'center' }}>
-                        <div style={{ fontSize: '1.2em', fontWeight: 'bold', color: '#333', letterSpacing: '2px' }}>BODY REPAIRS</div>
-                    </div>
+                <div>
+                    <img src={process.env.PUBLIC_URL + "/TripleMMM.jpg"} alt="TRIPLE MMM BODY REPAIRS" style={{ maxHeight: '120px', maxWidth: '100%' }} />
                 </div>
                 
                 <div style={{ textAlign: 'right', fontSize: '0.9em', color: '#333', lineHeight: '1.4' }}>
@@ -201,7 +210,6 @@ const EstimateApp = ({ userId }) => {
 
             {mode !== 'SATISFACTION' && (
                 <>
-                    {/* ADD REPAIRS */}
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
@@ -210,7 +218,6 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
                     
-                    {/* ITEMS LIST WITH DELETE BUTTON */}
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
                         <thead>
                             <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
@@ -232,11 +239,9 @@ const EstimateApp = ({ userId }) => {
                         </tbody>
                     </table>
 
-                    {/* TOTALS */}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <div style={{ width: '300px', textAlign: 'right' }}>
                             <div className="no-print" style={{marginBottom:'10px'}}>
-                                {/* ADJUSTABLE LABOR RATE */}
                                 Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £
                                 <input type="number" value={laborRate} onChange={e => setLaborRate(e.target.value)} style={{width:'50px'}} />
                             </div>
