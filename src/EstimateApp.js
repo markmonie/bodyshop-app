@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -18,6 +17,14 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
+// --- STYLES (Moved to top to fix errors) ---
+const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
+const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
+const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
+const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
+const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
+const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const EstimateApp = ({ userId }) => {
     // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION'
@@ -131,7 +138,7 @@ const EstimateApp = ({ userId }) => {
     return (
         <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
-            {/* BRANDED HEADER */}
+            {/* BRANDED HEADER (Based on your Logo) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #cc0000', paddingBottom: '20px', marginBottom: '30px' }}>
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
                     <div style={{ fontSize: '3em', fontWeight: '900', letterSpacing: '-2px', lineHeight:'0.9' }}>
@@ -150,7 +157,7 @@ const EstimateApp = ({ userId }) => {
                 </div>
             </div>
 
-            {/* TITLE */}
+            {/* DOCUMENT TITLE & INFO */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
                 <div>
                     <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'SATISFACTION' ? '#d97706' : '#333', textTransform: 'uppercase' }}>
@@ -165,7 +172,7 @@ const EstimateApp = ({ userId }) => {
                 )}
             </div>
 
-            {/* CUSTOMER GRID */}
+            {/* CUSTOMER & VEHICLE GRID */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px', border: '1px solid #eee', padding: '20px', borderRadius: '8px' }}>
                 <div>
                     <h4 style={headerStyle}>CLIENT DETAILS</h4>
@@ -186,9 +193,12 @@ const EstimateApp = ({ userId }) => {
                 </div>
             </div>
 
-            {/* MODE SWITCHER */}
+            {/* --- CONTENT SWITCHER BASED ON MODE --- */}
+
+            {/* MODE 1 & 2: ESTIMATE OR INVOICE (SHOW COSTS) */}
             {mode !== 'SATISFACTION' && (
                 <>
+                    {/* REPAIRS INPUT */}
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
@@ -197,6 +207,7 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
                     
+                    {/* ITEMS TABLE */}
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
                         <thead>
                             <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
@@ -214,6 +225,7 @@ const EstimateApp = ({ userId }) => {
                         </tbody>
                     </table>
 
+                    {/* FINANCIAL TOTALS */}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <div style={{ width: '300px', textAlign: 'right' }}>
                             <div className="no-print" style={{marginBottom:'10px'}}>
@@ -241,6 +253,7 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
 
+                    {/* INVOICE FOOTER */}
                     {mode === 'INVOICE' && (
                         <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
                             <div>
@@ -261,7 +274,7 @@ const EstimateApp = ({ userId }) => {
                 </>
             )}
 
-            {/* SATISFACTION NOTE */}
+            {/* MODE 3: SATISFACTION NOTE */}
             {mode === 'SATISFACTION' && (
                 <div style={{ marginTop: '20px', padding: '30px', border: '2px solid #333' }}>
                     <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
@@ -317,13 +330,6 @@ const EstimateApp = ({ userId }) => {
         </div>
     );
 };
-
-// Styles
-const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
-const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
-const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
-const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
-const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const App = () => {
     const [u, sU] = useState(null);
