@@ -18,7 +18,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// --- STYLES (Moved to top to fix errors) ---
+// --- STYLES ---
 const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
 const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
 const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
@@ -27,12 +27,11 @@ const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white'
 const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const EstimateApp = ({ userId }) => {
-    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION'
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
 
-    // Inputs
+    // Inputs (State)
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
@@ -41,40 +40,46 @@ const EstimateApp = ({ userId }) => {
     const [mileage, setMileage] = useState('');
     const [makeModel, setMakeModel] = useState('');
 
-    // Line Items
     const [itemDesc, setItemDesc] = useState('');
     const [itemCost, setItemCost] = useState('');
     const [items, setItems] = useState([]);
     
     // Financials
     const [laborHours, setLaborHours] = useState('');
-    const [laborRate, setLaborRate] = useState('50');
+    const [laborRate, setLaborRate] = useState('50'); // Default but adjustable
     const [vatRate, setVatRate] = useState('0');
     const [excess, setExcess] = useState('');
     
-    // System
     const [savedEstimates, setSavedEstimates] = useState([]);
-    const [saveStatus, setSaveStatus] = useState('IDLE'); // IDLE, SAVING, SUCCESS
+    const [saveStatus, setSaveStatus] = useState('IDLE');
+
+    // 1. AUTO-LOAD: When app starts, try to load unsaved work from browser memory
+    useEffect(() => {
+        const savedData = localStorage.getItem('triple_mmm_draft');
+        if (savedData) {
+            const draft = JSON.parse(savedData);
+            setName(draft.name || '');
+            setReg(draft.reg || '');
+            setItems(draft.items || []);
+            setLaborRate(draft.laborRate || '50');
+            // ... load other fields if needed
+        }
+    }, []);
+
+    // 2. AUTO-SAVE: Every time you type, save to browser memory
+    useEffect(() => {
+        const draft = { name, reg, items, laborRate };
+        localStorage.setItem('triple_mmm_draft', JSON.stringify(draft));
+    }, [name, reg, items, laborRate]);
 
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
 
-    const checkHistory = async (regInput) => {
-        if(regInput.length < 3) return;
-        const q = query(collection(db, 'estimates'), where("reg", "==", regInput), orderBy('createdAt', 'desc'));
-        try {
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-                const prev = querySnapshot.docs[0].data();
-                setMakeModel(prev.makeModel || ''); 
-                setName(prev.customer || '');
-                setPhone(prev.phone || '');
-                setEmail(prev.email || '');
-                setAddress(prev.address || '');
-            }
-        } catch(e) { }
+    // 3. RECTIFY MISTAKES: Function to remove an item
+    const removeItem = (indexToRemove) => {
+        setItems(items.filter((_, index) => index !== indexToRemove));
     };
 
     const addItem = () => {
@@ -99,13 +104,14 @@ const EstimateApp = ({ userId }) => {
     const totals = calculateTotal();
 
     const clearForm = () => {
-        if(window.confirm("Start fresh?")) {
+        if(window.confirm("Start fresh? This will clear the current form.")) {
             setMode('ESTIMATE');
             setInvoiceNum(''); setInvoiceDate('');
             setName(''); setAddress(''); setPhone(''); setEmail('');
             setReg(''); setMileage(''); setMakeModel('');
             setItems([]); setLaborHours(''); setExcess('');
             setSaveStatus('IDLE');
+            localStorage.removeItem('triple_mmm_draft'); // Clear the auto-save
         }
     }
 
@@ -138,7 +144,7 @@ const EstimateApp = ({ userId }) => {
     return (
         <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
-            {/* BRANDED HEADER (Based on your Logo) */}
+            {/* HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #cc0000', paddingBottom: '20px', marginBottom: '30px' }}>
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
                     <div style={{ fontSize: '3em', fontWeight: '900', letterSpacing: '-2px', lineHeight:'0.9' }}>
@@ -157,7 +163,7 @@ const EstimateApp = ({ userId }) => {
                 </div>
             </div>
 
-            {/* DOCUMENT TITLE & INFO */}
+            {/* TITLE & INFO */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
                 <div>
                     <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'SATISFACTION' ? '#d97706' : '#333', textTransform: 'uppercase' }}>
@@ -172,7 +178,7 @@ const EstimateApp = ({ userId }) => {
                 )}
             </div>
 
-            {/* CUSTOMER & VEHICLE GRID */}
+            {/* DETAILS FORM */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px', border: '1px solid #eee', padding: '20px', borderRadius: '8px' }}>
                 <div>
                     <h4 style={headerStyle}>CLIENT DETAILS</h4>
@@ -186,19 +192,16 @@ const EstimateApp = ({ userId }) => {
                 <div>
                     <h4 style={headerStyle}>VEHICLE DETAILS</h4>
                     <div style={{display:'flex', gap:'10px'}}>
-                        <input placeholder="Reg" value={reg} onChange={e => setReg(e.target.value)} onBlur={() => checkHistory(reg)} style={{...inputStyle, fontWeight:'bold', textTransform:'uppercase', background:'#f0f9ff'}} />
+                        <input placeholder="Reg" value={reg} onChange={e => setReg(e.target.value)} style={{...inputStyle, fontWeight:'bold', textTransform:'uppercase', background:'#f0f9ff'}} />
                         <input placeholder="Mileage" value={mileage} onChange={e => setMileage(e.target.value)} style={inputStyle} />
                     </div>
                     <input placeholder="Make / Model" value={makeModel} onChange={e => setMakeModel(e.target.value)} style={inputStyle} />
                 </div>
             </div>
 
-            {/* --- CONTENT SWITCHER BASED ON MODE --- */}
-
-            {/* MODE 1 & 2: ESTIMATE OR INVOICE (SHOW COSTS) */}
             {mode !== 'SATISFACTION' && (
                 <>
-                    {/* REPAIRS INPUT */}
+                    {/* ADD REPAIRS */}
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
@@ -207,12 +210,13 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
                     
-                    {/* ITEMS TABLE */}
+                    {/* ITEMS LIST WITH DELETE BUTTON */}
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
                         <thead>
                             <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
                                 <th style={{padding:'10px'}}>DESCRIPTION OF WORK</th>
                                 <th style={{textAlign:'right', padding:'10px'}}>AMOUNT</th>
+                                <th className="no-print" style={{width:'30px'}}></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -220,16 +224,21 @@ const EstimateApp = ({ userId }) => {
                                 <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
                                     <td style={{padding:'12px 10px'}}>{item.desc}</td>
                                     <td style={{textAlign:'right', padding:'12px 10px'}}>£{item.cost.toFixed(2)}</td>
+                                    <td className="no-print" style={{textAlign:'center'}}>
+                                        <button onClick={() => removeItem(i)} style={{background:'#ef4444', color:'white', border:'none', borderRadius:'50%', width:'24px', height:'24px', cursor:'pointer', fontWeight:'bold'}}>×</button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
 
-                    {/* FINANCIAL TOTALS */}
+                    {/* TOTALS */}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <div style={{ width: '300px', textAlign: 'right' }}>
                             <div className="no-print" style={{marginBottom:'10px'}}>
-                                Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £{laborRate}
+                                {/* ADJUSTABLE LABOR RATE */}
+                                Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £
+                                <input type="number" value={laborRate} onChange={e => setLaborRate(e.target.value)} style={{width:'50px'}} />
                             </div>
                             <div style={rowStyle}><span>Labor Total:</span> <span>£{totals.labor.toFixed(2)}</span></div>
                             <div style={rowStyle}><span>Parts Total:</span> <span>£{totals.parts.toFixed(2)}</span></div>
@@ -253,7 +262,6 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
 
-                    {/* INVOICE FOOTER */}
                     {mode === 'INVOICE' && (
                         <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
                             <div>
@@ -274,7 +282,6 @@ const EstimateApp = ({ userId }) => {
                 </>
             )}
 
-            {/* MODE 3: SATISFACTION NOTE */}
             {mode === 'SATISFACTION' && (
                 <div style={{ marginTop: '20px', padding: '30px', border: '2px solid #333' }}>
                     <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
@@ -296,7 +303,6 @@ const EstimateApp = ({ userId }) => {
                 </div>
             )}
 
-            {/* ACTION BUTTONS */}
             <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '15px', background: 'white', borderTop: '1px solid #ccc', display: 'flex', justifyContent: 'center', gap: '15px', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
                 <button onClick={() => saveToCloud('ESTIMATE')} disabled={saveStatus === 'SAVING'} style={saveStatus === 'SUCCESS' ? successBtn : primaryBtn}>
                     {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED!' : 'SAVE ESTIMATE')}
@@ -307,7 +313,6 @@ const EstimateApp = ({ userId }) => {
                 <button onClick={clearForm} style={{...secondaryBtn, background: '#ef4444'}}>NEW JOB</button>
             </div>
 
-            {/* SAVED LIST */}
             <div className="no-print" style={{marginTop:'100px', paddingBottom:'80px'}}>
                 <h3 style={{color:'#888', borderBottom:'1px solid #eee'}}>Recent Jobs</h3>
                 {savedEstimates.map(est => (
@@ -318,7 +323,6 @@ const EstimateApp = ({ userId }) => {
                 ))}
             </div>
 
-            {/* Styles for Printing */}
             <style>{`
                 @media print {
                     .no-print { display: none !important; }
