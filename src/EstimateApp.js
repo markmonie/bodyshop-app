@@ -65,7 +65,6 @@ const EstimateApp = ({ userId }) => {
                 setPhone(prev.phone || '');
                 setEmail(prev.email || '');
                 setAddress(prev.address || '');
-                // Don't alert, just subtle fill
             }
         } catch(e) { }
     };
@@ -125,37 +124,36 @@ const EstimateApp = ({ userId }) => {
         });
         
         setSaveStatus('SUCCESS');
-        setTimeout(() => setSaveStatus('IDLE'), 3000); // Reset button after 3 seconds
+        setTimeout(() => setSaveStatus('IDLE'), 3000); 
     };
 
     return (
         <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
-            {/* NEW DESIGN LETTERHEAD */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #1e3a8a', paddingBottom: '20px', marginBottom: '30px' }}>
-                <div style={{ flex: 1 }}>
-                    <div style={{ backgroundColor: '#1e3a8a', color: 'white', padding: '10px 20px', display: 'inline-block', fontWeight: 'bold', fontSize: '2em', letterSpacing: '2px' }}>
-                        TRIPLE MMM
+            {/* BRANDED HEADER (Based on your Logo) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #cc0000', paddingBottom: '20px', marginBottom: '30px' }}>
+                <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
+                    {/* Placeholder for Car Logo - Add the image URL here if you host it later */}
+                    <div style={{ fontSize: '3em', fontWeight: '900', letterSpacing: '-2px', lineHeight:'0.9' }}>
+                        <span style={{color: 'black'}}>TRIPLE</span><br/>
+                        <span style={{color: '#cc0000'}}>MMM</span>
                     </div>
-                    <div style={{ color: '#1e3a8a', fontSize: '1.2em', fontWeight: 'bold', marginTop: '5px', paddingLeft: '2px' }}>
-                        BODY REPAIRS
+                    <div style={{ borderLeft: '2px solid #333', paddingLeft: '20px', height: '60px', display: 'flex', alignItems: 'center' }}>
+                        <div style={{ fontSize: '1.2em', fontWeight: 'bold', color: '#333', letterSpacing: '2px' }}>BODY REPAIRS</div>
                     </div>
                 </div>
                 
-                <div style={{ textAlign: 'right', fontSize: '0.95em', color: '#333', lineHeight: '1.5' }}>
+                <div style={{ textAlign: 'right', fontSize: '0.9em', color: '#333', lineHeight: '1.4' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '5px' }}>20A New Street, Stonehouse, ML9 3LT</div>
                     <div>Tel: <strong>07501 728319</strong></div>
                     <div>Email: markmonie72@gmail.com</div>
-                    <div style={{ marginTop: '10px', fontSize: '0.9em', color: '#666' }}>
-                        VAT Reg: [Pending] &bull; Companies House: [Pending]
-                    </div>
                 </div>
             </div>
 
             {/* DOCUMENT TITLE & INFO */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
                 <div>
-                    <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'ESTIMATE' ? '#666' : (mode === 'SATISFACTION' ? '#d97706' : '#16a34a') }}>
+                    <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'SATISFACTION' ? '#d97706' : '#333', textTransform: 'uppercase' }}>
                         {mode === 'SATISFACTION' ? 'SATISFACTION NOTE' : mode}
                     </h2>
                 </div>
@@ -198,14 +196,14 @@ const EstimateApp = ({ userId }) => {
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
                             <input type="number" placeholder="Cost" value={itemCost} onChange={e => setItemCost(e.target.value)} style={{ width: '80px', padding: '10px' }} />
-                            <button onClick={addItem} style={{ background: '#1e3a8a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
+                            <button onClick={addItem} style={{ background: '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
                         </div>
                     </div>
                     
                     {/* ITEMS TABLE */}
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
                         <thead>
-                            <tr style={{textAlign:'left', borderBottom:'2px solid #1e3a8a', color: '#1e3a8a'}}>
+                            <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
                                 <th style={{padding:'10px'}}>DESCRIPTION OF WORK</th>
                                 <th style={{textAlign:'right', padding:'10px'}}>AMOUNT</th>
                             </tr>
@@ -242,7 +240,7 @@ const EstimateApp = ({ userId }) => {
                                 <span className="no-print"><input type="number" value={excess} onChange={e => setExcess(e.target.value)} style={{width:'60px'}} /></span> 
                                 <span>-£{totals.excessAmount.toFixed(2)}</span>
                             </div>
-                            <div style={{...rowStyle, fontSize:'1.4em', fontWeight:'bold', color:'#1e3a8a', borderTop:'2px solid #1e3a8a', marginTop:'5px', paddingTop:'10px'}}>
+                            <div style={{...rowStyle, fontSize:'1.4em', fontWeight:'bold', color:'#333', borderTop:'2px solid #333', marginTop:'5px', paddingTop:'10px'}}>
                                 <span>BALANCE DUE:</span> <span>£{totals.finalDue.toFixed(2)}</span>
                             </div>
                         </div>
@@ -250,9 +248,9 @@ const EstimateApp = ({ userId }) => {
 
                     {/* INVOICE FOOTER */}
                     {mode === 'INVOICE' && (
-                        <div style={{ marginTop: '50px', padding: '20px', background: '#f8fafc', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
+                        <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
                             <div>
-                                <h4 style={{margin:'0 0 10px 0', color:'#1e3a8a'}}>PAYMENT DETAILS</h4>
+                                <h4 style={{margin:'0 0 10px 0'}}>PAYMENT DETAILS</h4>
                                 <div style={{fontSize:'0.9em', lineHeight:'1.6'}}>
                                     Account Name: <strong>TRIPLE MMM BODY REPAIRS</strong><br/>
                                     Account No: <strong>06163462</strong><br/>
@@ -292,18 +290,16 @@ const EstimateApp = ({ userId }) => {
                 </div>
             )}
 
-            {/* ACTION BUTTONS (HIDDEN ON PRINT) */}
+            {/* ACTION BUTTONS */}
             <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '15px', background: 'white', borderTop: '1px solid #ccc', display: 'flex', justifyContent: 'center', gap: '15px', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
                 <button onClick={() => saveToCloud('ESTIMATE')} disabled={saveStatus === 'SAVING'} style={saveStatus === 'SUCCESS' ? successBtn : primaryBtn}>
-                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED SUCCESSFULLY!' : 'SAVE ESTIMATE')}
+                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED!' : 'SAVE ESTIMATE')}
                 </button>
                 
-                {/* Only show Generate Invoice if not already an invoice */}
                 {mode === 'ESTIMATE' && (
                     <button onClick={() => saveToCloud('INVOICE')} style={secondaryBtn}>GENERATE INVOICE</button>
                 )}
 
-                {/* Only show Satisfaction Note if it IS an invoice */}
                 {mode === 'INVOICE' && (
                     <button onClick={() => setMode('SATISFACTION')} style={{...secondaryBtn, background: '#d97706'}}>CREATE SATISFACTION NOTE</button>
                 )}
@@ -338,8 +334,7 @@ const EstimateApp = ({ userId }) => {
 
 // Styles
 const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
-const headerStyle = { borderBottom: '2px solid #1e3a8a', paddingBottom: '5px', marginBottom: '10px', color: '#1e3a8a', fontSize: '0.9em' };
-const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
+const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
 const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
 const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
 const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
