@@ -19,7 +19,7 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 const EstimateApp = ({ userId }) => {
-    // Mode: 'ESTIMATE' or 'INVOICE'
+    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION'
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
@@ -44,16 +44,15 @@ const EstimateApp = ({ userId }) => {
     const [vatRate, setVatRate] = useState('0');
     const [excess, setExcess] = useState('');
     
-    // Data
+    // System
     const [savedEstimates, setSavedEstimates] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [saveStatus, setSaveStatus] = useState('IDLE'); // IDLE, SAVING, SUCCESS
 
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
 
-    // History Lookup
     const checkHistory = async (regInput) => {
         if(regInput.length < 3) return;
         const q = query(collection(db, 'estimates'), where("reg", "==", regInput), orderBy('createdAt', 'desc'));
@@ -66,7 +65,7 @@ const EstimateApp = ({ userId }) => {
                 setPhone(prev.phone || '');
                 setEmail(prev.email || '');
                 setAddress(prev.address || '');
-                alert("Found previous details for " + regInput);
+                // Don't alert, just subtle fill
             }
         } catch(e) { }
     };
@@ -99,16 +98,16 @@ const EstimateApp = ({ userId }) => {
             setName(''); setAddress(''); setPhone(''); setEmail('');
             setReg(''); setMileage(''); setMakeModel('');
             setItems([]); setLaborHours(''); setExcess('');
+            setSaveStatus('IDLE');
         }
     }
 
     const saveToCloud = async (type) => {
         if (!name || !reg) return alert("Enter Customer Name & Reg");
-        setLoading(true);
-        // If generating invoice, create number
+        setSaveStatus('SAVING');
+        
         let finalInvNum = invoiceNum;
         if(type === 'INVOICE' && !finalInvNum) {
-            // Simple numbering: Count existing estimates + 1000
             finalInvNum = `INV-${1000 + savedEstimates.length + 1}`;
             setInvoiceNum(finalInvNum);
             setInvoiceDate(new Date().toLocaleDateString());
@@ -116,7 +115,7 @@ const EstimateApp = ({ userId }) => {
         }
 
         await addDoc(collection(db, 'estimates'), {
-            type: type, // 'ESTIMATE' or 'INVOICE'
+            type: type,
             invoiceNumber: finalInvNum,
             customer: name, address, phone, email,
             reg, mileage, makeModel,
@@ -125,157 +124,212 @@ const EstimateApp = ({ userId }) => {
             createdAt: serverTimestamp(), createdBy: userId
         });
         
-        if(type === 'ESTIMATE') alert("Estimate Saved!");
-        setLoading(false);
+        setSaveStatus('SUCCESS');
+        setTimeout(() => setSaveStatus('IDLE'), 3000); // Reset button after 3 seconds
     };
 
     return (
-        <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Segoe UI, sans-serif', background: 'white' }}>
+        <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
-            {/* LETTERHEAD */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '3px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
-                <div>
-                    <h1 style={{ margin: 0, color: '#2563eb', fontSize: '2.5em' }}>TRIPLE MMM</h1>
-                    <h2 style={{ margin: 0, color: '#333', fontSize: '1.2em' }}>BODY REPAIRS</h2>
-                    <div style={{ marginTop: '10px', color: '#555', fontSize: '0.9em' }}>
-                        20A New Street<br/>Stonehouse<br/>ML9 3LT
+            {/* NEW DESIGN LETTERHEAD */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #1e3a8a', paddingBottom: '20px', marginBottom: '30px' }}>
+                <div style={{ flex: 1 }}>
+                    <div style={{ backgroundColor: '#1e3a8a', color: 'white', padding: '10px 20px', display: 'inline-block', fontWeight: 'bold', fontSize: '2em', letterSpacing: '2px' }}>
+                        TRIPLE MMM
+                    </div>
+                    <div style={{ color: '#1e3a8a', fontSize: '1.2em', fontWeight: 'bold', marginTop: '5px', paddingLeft: '2px' }}>
+                        BODY REPAIRS
                     </div>
                 </div>
-                <div style={{ textAlign: 'right', color: '#555' }}>
-                    <div style={{ fontSize: '2em', fontWeight: 'bold', color: mode === 'INVOICE' ? '#16a34a' : '#666' }}>
-                        {mode}
-                    </div>
-                    {mode === 'INVOICE' && (
-                        <div style={{ marginTop: '10px' }}>
-                            <div><strong>Invoice #:</strong> {invoiceNum}</div>
-                            <div><strong>Date:</strong> {invoiceDate}</div>
-                        </div>
-                    )}
-                    <div style={{ marginTop: '15px' }}>
-                        <div><strong>Tel:</strong> 07501 728319</div>
-                        <div><strong>Email:</strong> markmonie72@gmail.com</div>
+                
+                <div style={{ textAlign: 'right', fontSize: '0.95em', color: '#333', lineHeight: '1.5' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '5px' }}>20A New Street, Stonehouse, ML9 3LT</div>
+                    <div>Tel: <strong>07501 728319</strong></div>
+                    <div>Email: markmonie72@gmail.com</div>
+                    <div style={{ marginTop: '10px', fontSize: '0.9em', color: '#666' }}>
+                        VAT Reg: [Pending] &bull; Companies House: [Pending]
                     </div>
                 </div>
             </div>
 
-            {/* CUSTOMER & VEHICLE GRID */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', marginBottom: '30px' }}>
+            {/* DOCUMENT TITLE & INFO */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
                 <div>
-                    <h3 style={headerStyle}>Customer</h3>
+                    <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'ESTIMATE' ? '#666' : (mode === 'SATISFACTION' ? '#d97706' : '#16a34a') }}>
+                        {mode === 'SATISFACTION' ? 'SATISFACTION NOTE' : mode}
+                    </h2>
+                </div>
+                {mode !== 'ESTIMATE' && (
+                    <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>{invoiceNum}</div>
+                        <div>{invoiceDate}</div>
+                    </div>
+                )}
+            </div>
+
+            {/* CUSTOMER & VEHICLE GRID */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px', border: '1px solid #eee', padding: '20px', borderRadius: '8px' }}>
+                <div>
+                    <h4 style={headerStyle}>CLIENT DETAILS</h4>
                     <input placeholder="Name" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
-                    <textarea placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} style={{...inputStyle, height: '60px'}} />
-                    <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} />
-                    <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+                    <textarea placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} style={{...inputStyle, height: '60px', fontFamily: 'inherit'}} />
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px'}}>
+                        <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} />
+                        <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+                    </div>
                 </div>
                 <div>
-                    <h3 style={headerStyle}>Vehicle</h3>
+                    <h4 style={headerStyle}>VEHICLE DETAILS</h4>
                     <div style={{display:'flex', gap:'10px'}}>
-                        <input placeholder="Reg" value={reg} onChange={e => setReg(e.target.value)} onBlur={() => checkHistory(reg)} style={{...inputStyle, fontWeight:'bold', textTransform:'uppercase'}} />
+                        <input placeholder="Reg" value={reg} onChange={e => setReg(e.target.value)} onBlur={() => checkHistory(reg)} style={{...inputStyle, fontWeight:'bold', textTransform:'uppercase', background:'#f0f9ff'}} />
                         <input placeholder="Mileage" value={mileage} onChange={e => setMileage(e.target.value)} style={inputStyle} />
                     </div>
                     <input placeholder="Make / Model" value={makeModel} onChange={e => setMakeModel(e.target.value)} style={inputStyle} />
                 </div>
             </div>
 
-            {/* REPAIRS (Hidden input in print mode) */}
-            <div style={{ marginBottom: '30px' }}>
-                <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
-                        <input type="number" placeholder="Cost" value={itemCost} onChange={e => setItemCost(e.target.value)} style={{ width: '80px', padding: '10px' }} />
-                        <button onClick={addItem} style={{ background: '#2563eb', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px' }}>Add</button>
+            {/* --- CONTENT SWITCHER BASED ON MODE --- */}
+
+            {/* MODE 1 & 2: ESTIMATE OR INVOICE (SHOW COSTS) */}
+            {mode !== 'SATISFACTION' && (
+                <>
+                    {/* REPAIRS INPUT */}
+                    <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
+                            <input type="number" placeholder="Cost" value={itemCost} onChange={e => setItemCost(e.target.value)} style={{ width: '80px', padding: '10px' }} />
+                            <button onClick={addItem} style={{ background: '#1e3a8a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
+                        </div>
                     </div>
-                </div>
-                
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr style={{textAlign:'left', borderBottom:'2px solid #ddd'}}>
-                            <th style={{padding:'10px'}}>Description</th>
-                            <th style={{textAlign:'right', padding:'10px'}}>Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {items.map((item, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
-                                <td style={{padding:'10px'}}>{item.desc}</td>
-                                <td style={{textAlign:'right', padding:'10px'}}>£{item.cost.toFixed(2)}</td>
+                    
+                    {/* ITEMS TABLE */}
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
+                        <thead>
+                            <tr style={{textAlign:'left', borderBottom:'2px solid #1e3a8a', color: '#1e3a8a'}}>
+                                <th style={{padding:'10px'}}>DESCRIPTION OF WORK</th>
+                                <th style={{textAlign:'right', padding:'10px'}}>AMOUNT</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            {items.map((item, i) => (
+                                <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+                                    <td style={{padding:'12px 10px'}}>{item.desc}</td>
+                                    <td style={{textAlign:'right', padding:'12px 10px'}}>£{item.cost.toFixed(2)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
 
-            {/* TOTALS */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <div style={{ width: '300px', textAlign: 'right' }}>
-                    <div className="no-print" style={{marginBottom:'10px'}}>
-                        Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £{laborRate}
+                    {/* FINANCIAL TOTALS */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <div style={{ width: '300px', textAlign: 'right' }}>
+                            <div className="no-print" style={{marginBottom:'10px'}}>
+                                Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £{laborRate}
+                            </div>
+                            <div style={rowStyle}><span>Labor Total:</span> <span>£{totals.labor.toFixed(2)}</span></div>
+                            <div style={rowStyle}><span>Parts Total:</span> <span>£{totals.parts.toFixed(2)}</span></div>
+                            <div style={rowStyle}><span>Subtotal:</span> <span>£{totals.sub.toFixed(2)}</span></div>
+                            <div style={rowStyle}>
+                                <span>VAT ({vatRate}%):</span> 
+                                <span className="no-print"><input type="number" value={vatRate} onChange={e => setVatRate(e.target.value)} style={{width:'40px'}} /></span>
+                                <span style={{marginLeft:'5px'}}>£{totals.vat.toFixed(2)}</span>
+                            </div>
+                            <div style={{...rowStyle, fontSize:'1.2em', fontWeight:'bold', borderTop:'2px solid #333', marginTop:'5px'}}>
+                                <span>GRAND TOTAL:</span> <span>£{totals.grandTotal.toFixed(2)}</span>
+                            </div>
+                            <div style={{...rowStyle, color:'#dc2626'}}>
+                                <span>Less Excess:</span>
+                                <span className="no-print"><input type="number" value={excess} onChange={e => setExcess(e.target.value)} style={{width:'60px'}} /></span> 
+                                <span>-£{totals.excessAmount.toFixed(2)}</span>
+                            </div>
+                            <div style={{...rowStyle, fontSize:'1.4em', fontWeight:'bold', color:'#1e3a8a', borderTop:'2px solid #1e3a8a', marginTop:'5px', paddingTop:'10px'}}>
+                                <span>BALANCE DUE:</span> <span>£{totals.finalDue.toFixed(2)}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div style={rowStyle}><span>Labor Total:</span> <span>£{totals.labor.toFixed(2)}</span></div>
-                    <div style={rowStyle}><span>Parts Total:</span> <span>£{totals.parts.toFixed(2)}</span></div>
-                    <div style={rowStyle}><span>Subtotal:</span> <span>£{totals.sub.toFixed(2)}</span></div>
-                    <div style={rowStyle}>
-                        <span>VAT ({vatRate}%):</span> 
-                        <span className="no-print"><input type="number" value={vatRate} onChange={e => setVatRate(e.target.value)} style={{width:'40px'}} /></span>
-                        <span style={{marginLeft:'5px'}}>£{totals.vat.toFixed(2)}</span>
-                    </div>
-                    <div style={{...rowStyle, fontSize:'1.2em', fontWeight:'bold', borderTop:'2px solid #333', marginTop:'5px'}}>
-                        <span>GRAND TOTAL:</span> <span>£{totals.grandTotal.toFixed(2)}</span>
-                    </div>
-                    <div style={{...rowStyle, color:'#dc2626'}}>
-                        <span>Less Excess:</span>
-                        <span className="no-print"><input type="number" value={excess} onChange={e => setExcess(e.target.value)} style={{width:'60px'}} /></span> 
-                        <span>-£{totals.excessAmount.toFixed(2)}</span>
-                    </div>
-                    <div style={{...rowStyle, fontSize:'1.4em', fontWeight:'bold', color:'#16a34a', borderTop:'2px solid #16a34a', marginTop:'5px', paddingTop:'5px'}}>
-                        <span>BALANCE DUE:</span> <span>£{totals.finalDue.toFixed(2)}</span>
-                    </div>
-                </div>
-            </div>
 
-            {/* BANK DETAILS (Only Visible in Invoice Mode) */}
-            {mode === 'INVOICE' && (
-                <div style={{ marginTop: '40px', borderTop: '2px solid #eee', paddingTop: '20px', display: 'flex', justifyContent: 'space-between' }}>
-                    <div>
-                        <strong>Bank Transfer Details:</strong><br/>
-                        Account Name: TRIPLE MMM BODY REPAIRS<br/>
-                        Account: <strong>06163462</strong><br/>
-                        Sort Code: <strong>80-22-60</strong><br/>
-                        Bank: BANK OF SCOTLAND
-                    </div>
-                    <div style={{ textAlign: 'center', width: '300px' }}>
-                        <div style={{ borderBottom: '1px solid #333', height: '40px', marginBottom: '5px' }}></div>
-                        Signed
-                        <div style={{ borderBottom: '1px solid #333', height: '30px', marginBottom: '5px', width: '50%', marginLeft: 'auto', marginRight: 'auto' }}></div>
-                        Date
+                    {/* INVOICE FOOTER */}
+                    {mode === 'INVOICE' && (
+                        <div style={{ marginTop: '50px', padding: '20px', background: '#f8fafc', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
+                            <div>
+                                <h4 style={{margin:'0 0 10px 0', color:'#1e3a8a'}}>PAYMENT DETAILS</h4>
+                                <div style={{fontSize:'0.9em', lineHeight:'1.6'}}>
+                                    Account Name: <strong>TRIPLE MMM BODY REPAIRS</strong><br/>
+                                    Account No: <strong>06163462</strong><br/>
+                                    Sort Code: <strong>80-22-60</strong><br/>
+                                    Bank: <strong>BANK OF SCOTLAND</strong>
+                                </div>
+                            </div>
+                            <div style={{ textAlign: 'center', width: '250px', marginTop: '20px' }}>
+                                <div style={{ borderBottom: '1px solid #333', height: '40px', marginBottom: '5px' }}></div>
+                                <div style={{fontSize:'0.8em', color:'#666'}}>AUTHORISED SIGNATURE</div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* MODE 3: SATISFACTION NOTE */}
+            {mode === 'SATISFACTION' && (
+                <div style={{ marginTop: '20px', padding: '30px', border: '2px solid #333' }}>
+                    <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
+                        I/We being the owner/policyholder of vehicle registration <strong>{reg}</strong> hereby confirm that the repairs attended to by <strong>TRIPLE MMM BODY REPAIRS</strong> have been completed to my/our entire satisfaction.
+                    </p>
+                    <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
+                        I/We authorize payment to be made directly to the repairer in respect of the invoice number <strong>{invoiceNum}</strong> relative to this claim.
+                    </p>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '80px' }}>
+                        <div style={{ width: '45%' }}>
+                            <div style={{ borderBottom: '1px solid #333', height: '1px', marginBottom: '10px' }}></div>
+                            <strong>Customer Signature</strong>
+                        </div>
+                        <div style={{ width: '45%' }}>
+                            <div style={{ borderBottom: '1px solid #333', height: '1px', marginBottom: '10px' }}></div>
+                            <strong>Date</strong>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* ACTION BUTTONS */}
-            <div className="no-print" style={{ marginTop: '50px', display: 'flex', gap: '15px', padding: '20px', background: '#eee', borderRadius: '8px' }}>
-                <button onClick={() => saveToCloud('ESTIMATE')} disabled={loading} style={primaryBtn}>SAVE ESTIMATE</button>
-                <button onClick={() => saveToCloud('INVOICE')} style={{...primaryBtn, background: '#7c3aed'}}>GENERATE INVOICE</button>
-                <button onClick={() => window.print()} style={{...primaryBtn, background: '#333'}}>PRINT / PDF</button>
-                <button onClick={clearForm} style={{...primaryBtn, background: '#ef4444'}}>CLEAR FORM</button>
+            {/* ACTION BUTTONS (HIDDEN ON PRINT) */}
+            <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '15px', background: 'white', borderTop: '1px solid #ccc', display: 'flex', justifyContent: 'center', gap: '15px', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
+                <button onClick={() => saveToCloud('ESTIMATE')} disabled={saveStatus === 'SAVING'} style={saveStatus === 'SUCCESS' ? successBtn : primaryBtn}>
+                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED SUCCESSFULLY!' : 'SAVE ESTIMATE')}
+                </button>
+                
+                {/* Only show Generate Invoice if not already an invoice */}
+                {mode === 'ESTIMATE' && (
+                    <button onClick={() => saveToCloud('INVOICE')} style={secondaryBtn}>GENERATE INVOICE</button>
+                )}
+
+                {/* Only show Satisfaction Note if it IS an invoice */}
+                {mode === 'INVOICE' && (
+                    <button onClick={() => setMode('SATISFACTION')} style={{...secondaryBtn, background: '#d97706'}}>CREATE SATISFACTION NOTE</button>
+                )}
+
+                <button onClick={() => window.print()} style={{...secondaryBtn, background: '#333'}}>PRINT / PDF</button>
+                <button onClick={clearForm} style={{...secondaryBtn, background: '#ef4444'}}>NEW JOB</button>
             </div>
 
             {/* SAVED LIST */}
-            <div className="no-print" style={{marginTop:'30px'}}>
-                <h3>Recent Activity</h3>
+            <div className="no-print" style={{marginTop:'100px', paddingBottom:'80px'}}>
+                <h3 style={{color:'#888', borderBottom:'1px solid #eee'}}>Recent Jobs</h3>
                 {savedEstimates.map(est => (
-                    <div key={est.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', color: est.type === 'INVOICE' ? '#7c3aed' : '#333'}}>
+                    <div key={est.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', color: est.type === 'INVOICE' ? '#16a34a' : '#333'}}>
                         <span>{est.type === 'INVOICE' ? `📄 ${est.invoiceNumber}` : '📝 Estimate'} - {est.customer} ({est.reg})</span>
                         <strong>£{est.totals?.finalDue.toFixed(2)}</strong>
                     </div>
                 ))}
             </div>
 
+            {/* Styles for Printing */}
             <style>{`
                 @media print {
                     .no-print { display: none !important; }
                     body { padding: 0; margin: 0; background: white; }
-                    input, textarea { border: none !important; resize: none; }
+                    input, textarea { border: none !important; resize: none; font-family: inherit; }
+                    input::placeholder, textarea::placeholder { color: transparent; }
                 }
             `}</style>
         </div>
@@ -283,15 +337,17 @@ const EstimateApp = ({ userId }) => {
 };
 
 // Styles
-const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc' };
-const headerStyle = { borderBottom: '1px solid #ddd', paddingBottom: '5px', marginBottom: '10px' };
+const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
+const headerStyle = { borderBottom: '2px solid #1e3a8a', paddingBottom: '5px', marginBottom: '10px', color: '#1e3a8a', fontSize: '0.9em' };
 const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
-const primaryBtn = { flex: 1, padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
+const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
+const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
+const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const App = () => {
     const [u, sU] = useState(null);
     useEffect(() => onAuthStateChanged(auth, (user) => user ? sU(user.uid) : signInAnonymously(auth)), []);
-    if (!u) return <div style={{padding:'20px'}}>System Loading...</div>;
+    if (!u) return <div style={{padding:'20px'}}>Loading System...</div>;
     return <EstimateApp userId={u} />;
 };
 
