@@ -18,6 +18,14 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// --- STYLES (Moved to Top to Fix Errors) ---
+const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
+const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
+const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
+const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
+const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
+const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
+
 const EstimateApp = ({ userId }) => {
     // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION'
     const [mode, setMode] = useState('ESTIMATE');
@@ -210,6 +218,7 @@ const EstimateApp = ({ userId }) => {
 
             {mode !== 'SATISFACTION' && (
                 <>
+                    {/* ADD REPAIRS */}
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
@@ -218,6 +227,7 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
                     
+                    {/* ITEMS LIST WITH DELETE BUTTON */}
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
                         <thead>
                             <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
@@ -239,9 +249,11 @@ const EstimateApp = ({ userId }) => {
                         </tbody>
                     </table>
 
+                    {/* TOTALS */}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <div style={{ width: '300px', textAlign: 'right' }}>
                             <div className="no-print" style={{marginBottom:'10px'}}>
+                                {/* ADJUSTABLE LABOR RATE */}
                                 Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £
                                 <input type="number" value={laborRate} onChange={e => setLaborRate(e.target.value)} style={{width:'50px'}} />
                             </div>
