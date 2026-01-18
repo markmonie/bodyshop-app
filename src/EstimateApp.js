@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// --- TRIPLE MMM CONFIG ---
+// --- TRIPLE MMM CONFIG (Your Real Keys) ---
 const firebaseConfig = {
   apiKey: "AIzaSyDVfPvFLoL5eqQ3WQB96n08K3thdclYXRQ",
   authDomain: "triple-mmm-body-repairs.firebaseapp.com",
@@ -100,13 +100,12 @@ const EstimateApp = ({ userId }) => {
         setUploading(true);
         const file = e.target.files[0];
         const storageRef = ref(storage, `damage_photos/${Date.now()}_${file.name}`);
-        
         try {
             await uploadBytes(storageRef, file);
             const url = await getDownloadURL(storageRef);
             setPhotos([...photos, url]);
         } catch (error) {
-            alert("Upload failed! Check Firebase Storage Rules.");
+            alert("Upload failed! Check Storage Rules.");
         }
         setUploading(false);
     };
@@ -121,11 +120,11 @@ const EstimateApp = ({ userId }) => {
         await updateDoc(doc(db, 'estimates', id), { status: newStatus });
     };
 
-    // --- SIGNATURE LOGIC ---
+    // --- SIGNATURE LOGIC (Thicker Line) ---
     const startDrawing = ({ nativeEvent }) => {
         const { offsetX, offsetY } = getCoordinates(nativeEvent);
         const ctx = canvasRef.current.getContext('2d');
-        ctx.lineWidth = 3; 
+        ctx.lineWidth = 3; // THICKER LINE
         ctx.lineCap = 'round';
         ctx.strokeStyle = '#000';
         ctx.beginPath();
@@ -165,6 +164,7 @@ const EstimateApp = ({ userId }) => {
         }
     };
 
+    // Clear signature when switching modes
     useEffect(() => { clearSignature(); }, [mode]);
 
     const checkHistory = async (regInput) => {
@@ -281,7 +281,7 @@ const EstimateApp = ({ userId }) => {
                 <div>
                     {!logoError ? (
                         <img 
-                            src={process.env.PUBLIC_URL + "/TripleMMM.jpg"} 
+                            src={process.env.PUBLIC_URL + "/1768639609664.png"} 
                             alt="TRIPLE MMM BODY REPAIRS" 
                             style={{ maxHeight: '120px', maxWidth: '100%', objectFit: 'contain' }}
                             onError={() => setLogoError(true)} 
