@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // --- TRIPLE MMM CONFIG ---
 const firebaseConfig = {
@@ -17,6 +18,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
 
 // --- STYLES ---
 const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
@@ -27,6 +29,7 @@ const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white'
 const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const EstimateApp = ({ userId }) => {
+    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION', 'JOBCARD'
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
@@ -36,8 +39,8 @@ const EstimateApp = ({ userId }) => {
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
-    const [claimNum, setClaimNum] = useState(''); // NEW
-    const [networkCode, setNetworkCode] = useState(''); // NEW
+    const [claimNum, setClaimNum] = useState('');
+    const [networkCode, setNetworkCode] = useState('');
     
     const [reg, setReg] = useState('');
     const [mileage, setMileage] = useState('');
@@ -47,11 +50,17 @@ const EstimateApp = ({ userId }) => {
     const [itemCost, setItemCost] = useState('');
     const [items, setItems] = useState([]);
     
+    // Photos
+    const [photos, setPhotos] = useState([]);
+    const [uploading, setUploading] = useState(false);
+
+    // Financials
     const [laborHours, setLaborHours] = useState('');
     const [laborRate, setLaborRate] = useState('50');
     const [vatRate, setVatRate] = useState('0');
     const [excess, setExcess] = useState('');
     
+    // System
     const [savedEstimates, setSavedEstimates] = useState([]);
     const [saveStatus, setSaveStatus] = useState('IDLE');
     const [logoError, setLogoError] = useState(false);
@@ -70,25 +79,53 @@ const EstimateApp = ({ userId }) => {
             setLaborRate(draft.laborRate || '50');
             setClaimNum(draft.claimNum || '');
             setNetworkCode(draft.networkCode || '');
+            setPhotos(draft.photos || []);
         }
     }, []);
 
     // AUTO-SAVE
     useEffect(() => {
-        const draft = { name, reg, items, laborRate, claimNum, networkCode };
+        const draft = { name, reg, items, laborRate, claimNum, networkCode, photos };
         localStorage.setItem('triple_mmm_draft', JSON.stringify(draft));
-    }, [name, reg, items, laborRate, claimNum, networkCode]);
+    }, [name, reg, items, laborRate, claimNum, networkCode, photos]);
 
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
 
-    // --- SIGNATURE LOGIC (Thicker Line) ---
+    // --- PHOTO UPLOAD ---
+    const handlePhotoUpload = async (e) => {
+        if (!e.target.files[0]) return;
+        setUploading(true);
+        const file = e.target.files[0];
+        const storageRef = ref(storage, `damage_photos/${Date.now()}_${file.name}`);
+        
+        try {
+            await uploadBytes(storageRef, file);
+            const url = await getDownloadURL(storageRef);
+            setPhotos([...photos, url]);
+        } catch (error) {
+            alert("Upload failed! Check Firebase Storage Rules.");
+        }
+        setUploading(false);
+    };
+
+    const removePhoto = (index) => {
+        setPhotos(photos.filter((_, i) => i !== index));
+    };
+
+    // --- PAID STATUS ---
+    const togglePaid = async (id, currentStatus) => {
+        const newStatus = currentStatus === 'PAID' ? 'UNPAID' : 'PAID';
+        await updateDoc(doc(db, 'estimates', id), { status: newStatus });
+    };
+
+    // --- SIGNATURE LOGIC ---
     const startDrawing = ({ nativeEvent }) => {
         const { offsetX, offsetY } = getCoordinates(nativeEvent);
         const ctx = canvasRef.current.getContext('2d');
-        ctx.lineWidth = 3; // THICKER LINE
+        ctx.lineWidth = 3; 
         ctx.lineCap = 'round';
         ctx.strokeStyle = '#000';
         ctx.beginPath();
@@ -128,11 +165,7 @@ const EstimateApp = ({ userId }) => {
         }
     };
 
-    // Clear signature when switching modes so it doesn't carry over
-    useEffect(() => {
-        clearSignature();
-    }, [mode]);
-    // ---------------------------
+    useEffect(() => { clearSignature(); }, [mode]);
 
     const checkHistory = async (regInput) => {
         if(regInput.length < 3) return;
@@ -181,7 +214,7 @@ const EstimateApp = ({ userId }) => {
             setInvoiceNum(''); setInvoiceDate('');
             setName(''); setAddress(''); setPhone(''); setEmail('');
             setReg(''); setMileage(''); setMakeModel(''); setClaimNum(''); setNetworkCode('');
-            setItems([]); setLaborHours(''); setExcess('');
+            setItems([]); setLaborHours(''); setExcess(''); setPhotos([]);
             setSaveStatus('IDLE');
             localStorage.removeItem('triple_mmm_draft'); 
             clearSignature();
@@ -190,12 +223,13 @@ const EstimateApp = ({ userId }) => {
 
     const downloadAccountingCSV = () => {
         const invoices = savedEstimates.filter(est => est.type === 'INVOICE');
-        if (invoices.length === 0) return alert("No invoices found to export.");
+        if (invoices.length === 0) return alert("No invoices found.");
         let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Invoice Date,Invoice Number,Customer Name,Registration,Total Amount (£)\n";
+        csvContent += "Date,Invoice No,Customer,Reg,Total,Status\n";
         invoices.forEach(inv => {
             const date = inv.createdAt ? new Date(inv.createdAt.seconds * 1000).toLocaleDateString() : 'N/A';
-            const row = `${date},${inv.invoiceNumber},${inv.customer},${inv.reg},${inv.totals?.finalDue.toFixed(2)}`;
+            const status = inv.status || 'UNPAID';
+            const row = `${date},${inv.invoiceNumber},${inv.customer},${inv.reg},${inv.totals?.finalDue.toFixed(2)},${status}`;
             csvContent += row + "\n";
         });
         const encodedUri = encodeURI(csvContent);
@@ -222,10 +256,11 @@ const EstimateApp = ({ userId }) => {
 
             await addDoc(collection(db, 'estimates'), {
                 type: type,
+                status: 'UNPAID', // Default status
                 invoiceNumber: finalInvNum,
                 customer: name, address, phone, email, claimNum, networkCode,
                 reg, mileage, makeModel,
-                items, laborHours, laborRate, vatRate, excess,
+                items, laborHours, laborRate, vatRate, excess, photos,
                 totals: calculateTotal(),
                 createdAt: serverTimestamp(), createdBy: userId
             });
@@ -233,7 +268,6 @@ const EstimateApp = ({ userId }) => {
             setSaveStatus('SUCCESS');
             setTimeout(() => setSaveStatus('IDLE'), 3000); 
         } catch (error) {
-            console.error("Error saving:", error);
             alert("Error saving: " + error.message);
             setSaveStatus('IDLE');
         }
@@ -259,7 +293,6 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     )}
                 </div>
-                
                 <div style={{ textAlign: 'right', fontSize: '0.9em', color: '#333', lineHeight: '1.4' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '5px' }}>20A New Street, Stonehouse, ML9 3LT</div>
                     <div>Tel: <strong>07501 728319</strong></div>
@@ -267,14 +300,14 @@ const EstimateApp = ({ userId }) => {
                 </div>
             </div>
 
-            {/* TITLE & INFO */}
+            {/* TITLE */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
                 <div>
-                    <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'SATISFACTION' ? '#d97706' : '#333', textTransform: 'uppercase' }}>
-                        {mode === 'SATISFACTION' ? 'SATISFACTION NOTE' : mode}
+                    <h2 style={{ margin: 0, fontSize: '2em', color: mode === 'JOBCARD' ? '#333' : (mode === 'SATISFACTION' ? '#d97706' : '#333'), textTransform: 'uppercase' }}>
+                        {mode === 'JOBCARD' ? 'WORKSHOP JOB CARD' : (mode === 'SATISFACTION' ? 'SATISFACTION NOTE' : mode)}
                     </h2>
                 </div>
-                {mode !== 'ESTIMATE' && (
+                {mode !== 'ESTIMATE' && mode !== 'JOBCARD' && (
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>{invoiceNum}</div>
                         <div>Date: {invoiceDate || new Date().toLocaleDateString()}</div>
@@ -282,7 +315,7 @@ const EstimateApp = ({ userId }) => {
                 )}
             </div>
 
-            {/* DETAILS FORM (With Claim/Network Inputs) */}
+            {/* DETAILS FORM */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px', border: '1px solid #eee', padding: '20px', borderRadius: '8px' }}>
                 <div>
                     <h4 style={headerStyle}>CLIENT DETAILS</h4>
@@ -292,7 +325,6 @@ const EstimateApp = ({ userId }) => {
                         <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} />
                         <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
                     </div>
-                    {/* NEW FIELDS */}
                     <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginTop:'5px'}}>
                         <input placeholder="Claim No." value={claimNum} onChange={e => setClaimNum(e.target.value)} style={{...inputStyle, border:'1px solid #2563eb'}} />
                         <input placeholder="Network Code" value={networkCode} onChange={e => setNetworkCode(e.target.value)} style={{...inputStyle, border:'1px solid #2563eb'}} />
@@ -305,9 +337,29 @@ const EstimateApp = ({ userId }) => {
                         <input placeholder="Mileage" value={mileage} onChange={e => setMileage(e.target.value)} style={inputStyle} />
                     </div>
                     <input placeholder="Make / Model" value={makeModel} onChange={e => setMakeModel(e.target.value)} style={inputStyle} />
+                    
+                    {/* PHOTO UPLOAD */}
+                    <div className="no-print" style={{marginTop:'10px', background:'#f0fdf4', padding:'10px', borderRadius:'4px', border:'1px dashed #16a34a'}}>
+                        <label style={{display:'block', marginBottom:'5px', fontSize:'0.9em', color:'#166534'}}>Add Damage Photos:</label>
+                        <input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={uploading} />
+                        {uploading && <span style={{fontSize:'0.8em'}}>Uploading...</span>}
+                    </div>
                 </div>
             </div>
 
+            {/* PHOTOS DISPLAY */}
+            {photos.length > 0 && (
+                <div style={{marginBottom:'20px', display:'flex', gap:'10px', flexWrap:'wrap'}}>
+                    {photos.map((url, i) => (
+                        <div key={i} style={{position:'relative', width:'100px', height:'100px'}}>
+                            <img src={url} alt="Damage" style={{width:'100%', height:'100%', objectFit:'cover', borderRadius:'4px', border:'1px solid #ddd'}} />
+                            <button className="no-print" onClick={() => removePhoto(i)} style={{position:'absolute', top:-5, right:-5, background:'red', color:'white', borderRadius:'50%', border:'none', width:'20px', height:'20px', cursor:'pointer'}}>×</button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* MAIN CONTENT AREA */}
             {mode !== 'SATISFACTION' && (
                 <>
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
@@ -322,7 +374,8 @@ const EstimateApp = ({ userId }) => {
                         <thead>
                             <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
                                 <th style={{padding:'10px'}}>DESCRIPTION OF WORK</th>
-                                <th style={{textAlign:'right', padding:'10px'}}>AMOUNT</th>
+                                {mode === 'JOBCARD' && <th style={{width:'50px', textAlign:'center'}}>CHECK</th>}
+                                {mode !== 'JOBCARD' && <th style={{textAlign:'right', padding:'10px'}}>AMOUNT</th>}
                                 <th className="no-print" style={{width:'30px'}}></th>
                             </tr>
                         </thead>
@@ -330,7 +383,8 @@ const EstimateApp = ({ userId }) => {
                             {items.map((item, i) => (
                                 <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
                                     <td style={{padding:'12px 10px'}}>{item.desc}</td>
-                                    <td style={{textAlign:'right', padding:'12px 10px'}}>£{item.cost.toFixed(2)}</td>
+                                    {mode === 'JOBCARD' && <td style={{border:'1px solid #ddd'}}></td>}
+                                    {mode !== 'JOBCARD' && <td style={{textAlign:'right', padding:'12px 10px'}}>£{item.cost.toFixed(2)}</td>}
                                     <td className="no-print" style={{textAlign:'center'}}>
                                         <button onClick={() => removeItem(i)} style={{background:'#ef4444', color:'white', border:'none', borderRadius:'50%', width:'24px', height:'24px', cursor:'pointer', fontWeight:'bold'}}>×</button>
                                     </td>
@@ -339,37 +393,41 @@ const EstimateApp = ({ userId }) => {
                         </tbody>
                     </table>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <div style={{ width: '300px', textAlign: 'right' }}>
-                            <div className="no-print" style={{marginBottom:'10px'}}>
-                                Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £
-                                <input type="number" value={laborRate} onChange={e => setLaborRate(e.target.value)} style={{width:'50px'}} />
-                            </div>
-                            <div style={rowStyle}><span>Labor Total:</span> <span>£{totals.labor.toFixed(2)}</span></div>
-                            <div style={rowStyle}><span>Parts Total:</span> <span>£{totals.parts.toFixed(2)}</span></div>
-                            <div style={rowStyle}><span>Subtotal:</span> <span>£{totals.sub.toFixed(2)}</span></div>
-                            <div style={rowStyle}>
-                                <span>VAT ({vatRate}%):</span> 
-                                <span className="no-print"><input type="number" value={vatRate} onChange={e => setVatRate(e.target.value)} style={{width:'40px'}} /></span>
-                                <span style={{marginLeft:'5px'}}>£{totals.vat.toFixed(2)}</span>
-                            </div>
-                            <div style={{...rowStyle, fontSize:'1.2em', fontWeight:'bold', borderTop:'2px solid #333', marginTop:'5px'}}>
-                                <span>GRAND TOTAL:</span> <span>£{totals.grandTotal.toFixed(2)}</span>
-                            </div>
-                            <div style={{...rowStyle, color:'#dc2626'}}>
-                                <span>Less Excess:</span>
-                                <span className="no-print"><input type="number" value={excess} onChange={e => setExcess(e.target.value)} style={{width:'60px'}} /></span> 
-                                <span>-£{totals.excessAmount.toFixed(2)}</span>
-                            </div>
-                            <div style={{...rowStyle, fontSize:'1.4em', fontWeight:'bold', color:'#333', borderTop:'2px solid #333', marginTop:'5px', paddingTop:'10px'}}>
-                                <span>BALANCE DUE:</span> <span>£{totals.finalDue.toFixed(2)}</span>
+                    {/* FINANCIALS (HIDDEN IN JOB CARD) */}
+                    {mode !== 'JOBCARD' && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ width: '300px', textAlign: 'right' }}>
+                                <div className="no-print" style={{marginBottom:'10px'}}>
+                                    Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £
+                                    <input type="number" value={laborRate} onChange={e => setLaborRate(e.target.value)} style={{width:'50px'}} />
+                                </div>
+                                <div style={rowStyle}><span>Labor Total:</span> <span>£{totals.labor.toFixed(2)}</span></div>
+                                <div style={rowStyle}><span>Parts Total:</span> <span>£{totals.parts.toFixed(2)}</span></div>
+                                <div style={rowStyle}><span>Subtotal:</span> <span>£{totals.sub.toFixed(2)}</span></div>
+                                <div style={rowStyle}>
+                                    <span>VAT ({vatRate}%):</span> 
+                                    <span className="no-print"><input type="number" value={vatRate} onChange={e => setVatRate(e.target.value)} style={{width:'40px'}} /></span>
+                                    <span style={{marginLeft:'5px'}}>£{totals.vat.toFixed(2)}</span>
+                                </div>
+                                <div style={{...rowStyle, fontSize:'1.2em', fontWeight:'bold', borderTop:'2px solid #333', marginTop:'5px'}}>
+                                    <span>GRAND TOTAL:</span> <span>£{totals.grandTotal.toFixed(2)}</span>
+                                </div>
+                                <div style={{...rowStyle, color:'#dc2626'}}>
+                                    <span>Less Excess:</span>
+                                    <span className="no-print"><input type="number" value={excess} onChange={e => setExcess(e.target.value)} style={{width:'60px'}} /></span> 
+                                    <span>-£{totals.excessAmount.toFixed(2)}</span>
+                                </div>
+                                <div style={{...rowStyle, fontSize:'1.4em', fontWeight:'bold', color:'#333', borderTop:'2px solid #333', marginTop:'5px', paddingTop:'10px'}}>
+                                    <span>BALANCE DUE:</span> <span>£{totals.finalDue.toFixed(2)}</span>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
 
-                    {mode === 'INVOICE' && (
-                        <>
-                            <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
+                    {/* SIGNATURES */}
+                    {(mode === 'INVOICE' || mode === 'JOBCARD') && (
+                        <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
+                            {mode === 'INVOICE' && (
                                 <div>
                                     <h4 style={{margin:'0 0 10px 0'}}>PAYMENT DETAILS</h4>
                                     <div style={{fontSize:'0.9em', lineHeight:'1.6'}}>
@@ -379,29 +437,19 @@ const EstimateApp = ({ userId }) => {
                                         Bank: <strong>BANK OF SCOTLAND</strong>
                                     </div>
                                 </div>
-                                <div style={{ textAlign: 'center', width: '350px', marginTop: '20px' }}>
-                                    {/* SIGNATURE PAD FOR INVOICE */}
-                                    <div className="no-print" style={{border: '1px dashed #ccc', height: '100px', backgroundColor: '#fff', position: 'relative', marginBottom:'5px'}}>
-                                        <canvas
-                                            ref={canvasRef}
-                                            width={350}
-                                            height={100}
-                                            onMouseDown={startDrawing}
-                                            onMouseMove={draw}
-                                            onMouseUp={stopDrawing}
-                                            onMouseLeave={stopDrawing}
-                                            onTouchStart={startDrawing}
-                                            onTouchMove={draw}
-                                            onTouchEnd={stopDrawing}
-                                            style={{width: '100%', height: '100%', touchAction: 'none'}}
-                                        />
-                                        <button onClick={clearSignature} style={{position: 'absolute', top: 5, right: 5, fontSize: '0.7em', padding: '2px 5px'}}>Clear</button>
-                                    </div>
-                                    <div style={{ borderBottom: '1px solid #333', height: '40px', marginBottom: '5px' }}></div>
-                                    <div style={{fontSize:'0.8em', color:'#666'}}>AUTHORISED SIGNATURE</div>
+                            )}
+                            {mode === 'JOBCARD' && (
+                                <div><strong>Technician Notes:</strong><br/><br/>_______________________</div>
+                            )}
+                            <div style={{ textAlign: 'center', width: '350px', marginTop: '20px' }}>
+                                <div className="no-print" style={{border: '1px dashed #ccc', height: '100px', backgroundColor: '#fff', position: 'relative', marginBottom:'5px'}}>
+                                    <canvas ref={canvasRef} width={350} height={100} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} style={{width: '100%', height: '100%', touchAction: 'none'}} />
+                                    <button onClick={clearSignature} style={{position: 'absolute', top: 5, right: 5, fontSize: '0.7em', padding: '2px 5px'}}>Clear</button>
                                 </div>
+                                <div style={{ borderBottom: '1px solid #333', height: '40px', marginBottom: '5px' }}></div>
+                                <div style={{fontSize:'0.8em', color:'#666'}}>{mode === 'JOBCARD' ? 'TECHNICIAN SIGNATURE' : 'AUTHORISED SIGNATURE'}</div>
                             </div>
-                        </>
+                        </div>
                     )}
                 </>
             )}
@@ -416,21 +464,8 @@ const EstimateApp = ({ userId }) => {
                     </p>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '80px', gap: '20px' }}>
                         <div style={{ width: '45%' }}>
-                            {/* SIGNATURE PAD FOR SATISFACTION */}
                             <div className="no-print" style={{border: '1px dashed #ccc', height: '100px', backgroundColor: '#fff', position: 'relative', marginBottom:'5px'}}>
-                                <canvas
-                                    ref={canvasRef}
-                                    width={350}
-                                    height={100}
-                                    onMouseDown={startDrawing}
-                                    onMouseMove={draw}
-                                    onMouseUp={stopDrawing}
-                                    onMouseLeave={stopDrawing}
-                                    onTouchStart={startDrawing}
-                                    onTouchMove={draw}
-                                    onTouchEnd={stopDrawing}
-                                    style={{width: '100%', height: '100%', touchAction: 'none'}}
-                                />
+                                <canvas ref={canvasRef} width={350} height={100} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} style={{width: '100%', height: '100%', touchAction: 'none'}} />
                                 <button onClick={clearSignature} style={{position: 'absolute', top: 5, right: 5, fontSize: '0.7em', padding: '2px 5px'}}>Clear</button>
                             </div>
                             <div style={{ borderBottom: '1px solid #333', marginBottom: '10px' }}></div>
@@ -446,12 +481,13 @@ const EstimateApp = ({ userId }) => {
                 </div>
             )}
 
-            <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '15px', background: 'white', borderTop: '1px solid #ccc', display: 'flex', justifyContent: 'center', gap: '15px', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
+            <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '15px', background: 'white', borderTop: '1px solid #ccc', display: 'flex', justifyContent: 'center', gap: '15px', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)', flexWrap: 'wrap' }}>
                 <button onClick={() => saveToCloud('ESTIMATE')} disabled={saveStatus === 'SAVING'} style={saveStatus === 'SUCCESS' ? successBtn : primaryBtn}>
-                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED SUCCESSFULLY!' : 'SAVE ESTIMATE')}
+                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED!' : 'SAVE ESTIMATE')}
                 </button>
                 {mode === 'ESTIMATE' && <button onClick={() => saveToCloud('INVOICE')} style={secondaryBtn}>GENERATE INVOICE</button>}
-                {mode === 'INVOICE' && <button onClick={() => setMode('SATISFACTION')} style={{...secondaryBtn, background: '#d97706'}}>CREATE SATISFACTION NOTE</button>}
+                <button onClick={() => setMode('JOBCARD')} style={{...secondaryBtn, background: '#4b5563'}}>JOB CARD</button>
+                {mode === 'INVOICE' && <button onClick={() => setMode('SATISFACTION')} style={{...secondaryBtn, background: '#d97706'}}>SATISFACTION NOTE</button>}
                 <button onClick={() => window.print()} style={{...secondaryBtn, background: '#333'}}>PRINT / PDF</button>
                 <button onClick={clearForm} style={{...secondaryBtn, background: '#ef4444'}}>NEW JOB</button>
             </div>
@@ -465,9 +501,14 @@ const EstimateApp = ({ userId }) => {
                 </div>
                 
                 {savedEstimates.map(est => (
-                    <div key={est.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', color: est.type === 'INVOICE' ? '#16a34a' : '#333'}}>
-                        <span>{est.type === 'INVOICE' ? `📄 ${est.invoiceNumber}` : '📝 Estimate'} - {est.customer} ({est.reg})</span>
-                        <strong>£{est.totals?.finalDue.toFixed(2)}</strong>
+                    <div key={est.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center', backgroundColor: est.status === 'PAID' ? '#f0fdf4' : 'transparent'}}>
+                        <div style={{color: est.type === 'INVOICE' ? '#16a34a' : '#333'}}>
+                            <span>{est.type === 'INVOICE' ? `📄 ${est.invoiceNumber}` : '📝 Estimate'} - {est.customer} ({est.reg})</span>
+                            <div style={{fontSize:'0.8em', color:'#666'}}>{new Date(est.createdAt?.seconds * 1000).toLocaleDateString()} - £{est.totals?.finalDue.toFixed(2)}</div>
+                        </div>
+                        <button onClick={() => togglePaid(est.id, est.status)} style={{padding:'5px 10px', border:'1px solid #ccc', borderRadius:'4px', background: est.status === 'PAID' ? '#16a34a' : 'white', color: est.status === 'PAID' ? 'white' : '#333', cursor:'pointer'}}>
+                            {est.status === 'PAID' ? 'PAID' : 'MARK PAID'}
+                        </button>
                     </div>
                 ))}
             </div>
