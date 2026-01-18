@@ -27,7 +27,6 @@ const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white'
 const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const EstimateApp = ({ userId }) => {
-    // Modes
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
@@ -37,27 +36,26 @@ const EstimateApp = ({ userId }) => {
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
+    const [claimNum, setClaimNum] = useState(''); // NEW
+    const [networkCode, setNetworkCode] = useState(''); // NEW
+    
     const [reg, setReg] = useState('');
     const [mileage, setMileage] = useState('');
     const [makeModel, setMakeModel] = useState('');
 
-    // Line Items
     const [itemDesc, setItemDesc] = useState('');
     const [itemCost, setItemCost] = useState('');
     const [items, setItems] = useState([]);
     
-    // Financials
     const [laborHours, setLaborHours] = useState('');
     const [laborRate, setLaborRate] = useState('50');
     const [vatRate, setVatRate] = useState('0');
     const [excess, setExcess] = useState('');
     
-    // System
     const [savedEstimates, setSavedEstimates] = useState([]);
     const [saveStatus, setSaveStatus] = useState('IDLE');
     const [logoError, setLogoError] = useState(false);
 
-    // Signature Canvas Refs
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
 
@@ -70,33 +68,36 @@ const EstimateApp = ({ userId }) => {
             setReg(draft.reg || '');
             setItems(draft.items || []);
             setLaborRate(draft.laborRate || '50');
+            setClaimNum(draft.claimNum || '');
+            setNetworkCode(draft.networkCode || '');
         }
     }, []);
 
-    // AUTO-SAVE to Browser
+    // AUTO-SAVE
     useEffect(() => {
-        const draft = { name, reg, items, laborRate };
+        const draft = { name, reg, items, laborRate, claimNum, networkCode };
         localStorage.setItem('triple_mmm_draft', JSON.stringify(draft));
-    }, [name, reg, items, laborRate]);
+    }, [name, reg, items, laborRate, claimNum, networkCode]);
 
-    // CLOUD SYNC
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
 
-    // --- SIGNATURE FUNCTIONS ---
+    // --- SIGNATURE LOGIC (Thicker Line) ---
     const startDrawing = ({ nativeEvent }) => {
-        if(mode !== 'SATISFACTION') return;
         const { offsetX, offsetY } = getCoordinates(nativeEvent);
         const ctx = canvasRef.current.getContext('2d');
+        ctx.lineWidth = 3; // THICKER LINE
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#000';
         ctx.beginPath();
         ctx.moveTo(offsetX, offsetY);
         setIsDrawing(true);
     };
 
     const draw = ({ nativeEvent }) => {
-        if (!isDrawing || mode !== 'SATISFACTION') return;
+        if (!isDrawing) return;
         const { offsetX, offsetY } = getCoordinates(nativeEvent);
         const ctx = canvasRef.current.getContext('2d');
         ctx.lineTo(offsetX, offsetY);
@@ -104,7 +105,6 @@ const EstimateApp = ({ userId }) => {
     };
 
     const stopDrawing = () => {
-        if(mode !== 'SATISFACTION') return;
         const ctx = canvasRef.current.getContext('2d');
         ctx.closePath();
         setIsDrawing(false);
@@ -122,9 +122,16 @@ const EstimateApp = ({ userId }) => {
     };
 
     const clearSignature = () => {
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        if(canvasRef.current) {
+            const ctx = canvasRef.current.getContext('2d');
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
     };
+
+    // Clear signature when switching modes so it doesn't carry over
+    useEffect(() => {
+        clearSignature();
+    }, [mode]);
     // ---------------------------
 
     const checkHistory = async (regInput) => {
@@ -173,33 +180,24 @@ const EstimateApp = ({ userId }) => {
             setMode('ESTIMATE');
             setInvoiceNum(''); setInvoiceDate('');
             setName(''); setAddress(''); setPhone(''); setEmail('');
-            setReg(''); setMileage(''); setMakeModel('');
+            setReg(''); setMileage(''); setMakeModel(''); setClaimNum(''); setNetworkCode('');
             setItems([]); setLaborHours(''); setExcess('');
             setSaveStatus('IDLE');
             localStorage.removeItem('triple_mmm_draft'); 
-            if(canvasRef.current) clearSignature();
+            clearSignature();
         }
     }
 
-    // --- GOOGLE SHEETS EXPORT ---
     const downloadAccountingCSV = () => {
-        // Filter for Invoices only
         const invoices = savedEstimates.filter(est => est.type === 'INVOICE');
-        
         if (invoices.length === 0) return alert("No invoices found to export.");
-
-        // Create CSV Header
         let csvContent = "data:text/csv;charset=utf-8,";
         csvContent += "Invoice Date,Invoice Number,Customer Name,Registration,Total Amount (£)\n";
-
-        // Add Data Rows
         invoices.forEach(inv => {
             const date = inv.createdAt ? new Date(inv.createdAt.seconds * 1000).toLocaleDateString() : 'N/A';
             const row = `${date},${inv.invoiceNumber},${inv.customer},${inv.reg},${inv.totals?.finalDue.toFixed(2)}`;
             csvContent += row + "\n";
         });
-
-        // Trigger Download
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
@@ -225,7 +223,7 @@ const EstimateApp = ({ userId }) => {
             await addDoc(collection(db, 'estimates'), {
                 type: type,
                 invoiceNumber: finalInvNum,
-                customer: name, address, phone, email,
+                customer: name, address, phone, email, claimNum, networkCode,
                 reg, mileage, makeModel,
                 items, laborHours, laborRate, vatRate, excess,
                 totals: calculateTotal(),
@@ -244,7 +242,7 @@ const EstimateApp = ({ userId }) => {
     return (
         <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
-            {/* LOGO HEADER */}
+            {/* HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #cc0000', paddingBottom: '20px', marginBottom: '30px' }}>
                 <div>
                     {!logoError ? (
@@ -279,12 +277,12 @@ const EstimateApp = ({ userId }) => {
                 {mode !== 'ESTIMATE' && (
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>{invoiceNum}</div>
-                        <div>{invoiceDate}</div>
+                        <div>Date: {invoiceDate || new Date().toLocaleDateString()}</div>
                     </div>
                 )}
             </div>
 
-            {/* DETAILS FORM */}
+            {/* DETAILS FORM (With Claim/Network Inputs) */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px', border: '1px solid #eee', padding: '20px', borderRadius: '8px' }}>
                 <div>
                     <h4 style={headerStyle}>CLIENT DETAILS</h4>
@@ -294,11 +292,16 @@ const EstimateApp = ({ userId }) => {
                         <input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} />
                         <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
                     </div>
+                    {/* NEW FIELDS */}
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginTop:'5px'}}>
+                        <input placeholder="Claim No." value={claimNum} onChange={e => setClaimNum(e.target.value)} style={{...inputStyle, border:'1px solid #2563eb'}} />
+                        <input placeholder="Network Code" value={networkCode} onChange={e => setNetworkCode(e.target.value)} style={{...inputStyle, border:'1px solid #2563eb'}} />
+                    </div>
                 </div>
                 <div>
                     <h4 style={headerStyle}>VEHICLE DETAILS</h4>
                     <div style={{display:'flex', gap:'10px'}}>
-                        <input placeholder="Reg" value={reg} onChange={e => setReg(e.target.value)} style={{...inputStyle, fontWeight:'bold', textTransform:'uppercase', background:'#f0f9ff'}} />
+                        <input placeholder="Reg" value={reg} onChange={e => setReg(e.target.value)} onBlur={() => checkHistory(reg)} style={{...inputStyle, fontWeight:'bold', textTransform:'uppercase', background:'#f0f9ff'}} />
                         <input placeholder="Mileage" value={mileage} onChange={e => setMileage(e.target.value)} style={inputStyle} />
                     </div>
                     <input placeholder="Make / Model" value={makeModel} onChange={e => setMakeModel(e.target.value)} style={inputStyle} />
@@ -365,21 +368,40 @@ const EstimateApp = ({ userId }) => {
                     </div>
 
                     {mode === 'INVOICE' && (
-                        <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
-                            <div>
-                                <h4 style={{margin:'0 0 10px 0'}}>PAYMENT DETAILS</h4>
-                                <div style={{fontSize:'0.9em', lineHeight:'1.6'}}>
-                                    Account Name: <strong>TRIPLE MMM BODY REPAIRS</strong><br/>
-                                    Account No: <strong>06163462</strong><br/>
-                                    Sort Code: <strong>80-22-60</strong><br/>
-                                    Bank: <strong>BANK OF SCOTLAND</strong>
+                        <>
+                            <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
+                                <div>
+                                    <h4 style={{margin:'0 0 10px 0'}}>PAYMENT DETAILS</h4>
+                                    <div style={{fontSize:'0.9em', lineHeight:'1.6'}}>
+                                        Account Name: <strong>TRIPLE MMM BODY REPAIRS</strong><br/>
+                                        Account No: <strong>06163462</strong><br/>
+                                        Sort Code: <strong>80-22-60</strong><br/>
+                                        Bank: <strong>BANK OF SCOTLAND</strong>
+                                    </div>
+                                </div>
+                                <div style={{ textAlign: 'center', width: '350px', marginTop: '20px' }}>
+                                    {/* SIGNATURE PAD FOR INVOICE */}
+                                    <div className="no-print" style={{border: '1px dashed #ccc', height: '100px', backgroundColor: '#fff', position: 'relative', marginBottom:'5px'}}>
+                                        <canvas
+                                            ref={canvasRef}
+                                            width={350}
+                                            height={100}
+                                            onMouseDown={startDrawing}
+                                            onMouseMove={draw}
+                                            onMouseUp={stopDrawing}
+                                            onMouseLeave={stopDrawing}
+                                            onTouchStart={startDrawing}
+                                            onTouchMove={draw}
+                                            onTouchEnd={stopDrawing}
+                                            style={{width: '100%', height: '100%', touchAction: 'none'}}
+                                        />
+                                        <button onClick={clearSignature} style={{position: 'absolute', top: 5, right: 5, fontSize: '0.7em', padding: '2px 5px'}}>Clear</button>
+                                    </div>
+                                    <div style={{ borderBottom: '1px solid #333', height: '40px', marginBottom: '5px' }}></div>
+                                    <div style={{fontSize:'0.8em', color:'#666'}}>AUTHORISED SIGNATURE</div>
                                 </div>
                             </div>
-                            <div style={{ textAlign: 'center', width: '250px', marginTop: '20px' }}>
-                                <div style={{ borderBottom: '1px solid #333', height: '40px', marginBottom: '5px' }}></div>
-                                <div style={{fontSize:'0.8em', color:'#666'}}>AUTHORISED SIGNATURE</div>
-                            </div>
-                        </div>
+                        </>
                     )}
                 </>
             )}
@@ -394,8 +416,8 @@ const EstimateApp = ({ userId }) => {
                     </p>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '80px', gap: '20px' }}>
                         <div style={{ width: '45%' }}>
-                            {/* CANVAS SIGNATURE PAD */}
-                            <div style={{borderBottom: '1px solid #333', marginBottom: '10px', height: '100px', backgroundColor: '#f9f9f9', position: 'relative'}}>
+                            {/* SIGNATURE PAD FOR SATISFACTION */}
+                            <div className="no-print" style={{border: '1px dashed #ccc', height: '100px', backgroundColor: '#fff', position: 'relative', marginBottom:'5px'}}>
                                 <canvas
                                     ref={canvasRef}
                                     width={350}
@@ -411,10 +433,13 @@ const EstimateApp = ({ userId }) => {
                                 />
                                 <button onClick={clearSignature} style={{position: 'absolute', top: 5, right: 5, fontSize: '0.7em', padding: '2px 5px'}}>Clear</button>
                             </div>
+                            <div style={{ borderBottom: '1px solid #333', marginBottom: '10px' }}></div>
                             <strong>Customer Signature</strong>
                         </div>
                         <div style={{ width: '45%' }}>
-                            <div style={{ borderBottom: '1px solid #333', height: '100px', marginBottom: '10px' }}></div>
+                            <div style={{ borderBottom: '1px solid #333', height: '100px', marginBottom: '10px', display:'flex', alignItems:'flex-end' }}>
+                                <span>{new Date().toLocaleDateString()}</span>
+                            </div>
                             <strong>Date</strong>
                         </div>
                     </div>
