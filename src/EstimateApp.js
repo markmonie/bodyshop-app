@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs } from 'firebase/firestore';
@@ -18,16 +18,16 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// --- STYLES (Moved to Top to Fix Errors) ---
+// --- STYLES ---
 const inputStyle = { width: '100%', padding: '8px', marginBottom: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '1em' };
 const headerStyle = { borderBottom: '2px solid #cc0000', paddingBottom: '5px', marginBottom: '10px', color: '#cc0000', fontSize: '0.9em' };
 const rowStyle = { display: 'flex', justifyContent: 'space-between', padding: '2px 0' };
 const primaryBtn = { padding: '12px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' };
-const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #16a34a', borderRadius: '6px', fontWeight: 'bold', cursor: 'default' };
+const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white', border: '2px solid #22c55e', borderRadius: '6px', fontWeight: 'bold', cursor: 'default', boxShadow: '0 0 10px #22c55e' };
 const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const EstimateApp = ({ userId }) => {
-    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION'
+    // Modes
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
@@ -54,9 +54,14 @@ const EstimateApp = ({ userId }) => {
     
     // System
     const [savedEstimates, setSavedEstimates] = useState([]);
-    const [saveStatus, setSaveStatus] = useState('IDLE'); // IDLE, SAVING, SUCCESS
+    const [saveStatus, setSaveStatus] = useState('IDLE');
+    const [logoError, setLogoError] = useState(false);
 
-    // 1. AUTO-LOAD
+    // Signature Canvas Refs
+    const canvasRef = useRef(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+
+    // AUTO-LOAD
     useEffect(() => {
         const savedData = localStorage.getItem('triple_mmm_draft');
         if (savedData) {
@@ -68,16 +73,59 @@ const EstimateApp = ({ userId }) => {
         }
     }, []);
 
-    // 2. AUTO-SAVE
+    // AUTO-SAVE to Browser
     useEffect(() => {
         const draft = { name, reg, items, laborRate };
         localStorage.setItem('triple_mmm_draft', JSON.stringify(draft));
     }, [name, reg, items, laborRate]);
 
+    // CLOUD SYNC
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
+
+    // --- SIGNATURE FUNCTIONS ---
+    const startDrawing = ({ nativeEvent }) => {
+        if(mode !== 'SATISFACTION') return;
+        const { offsetX, offsetY } = getCoordinates(nativeEvent);
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(offsetX, offsetY);
+        setIsDrawing(true);
+    };
+
+    const draw = ({ nativeEvent }) => {
+        if (!isDrawing || mode !== 'SATISFACTION') return;
+        const { offsetX, offsetY } = getCoordinates(nativeEvent);
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.lineTo(offsetX, offsetY);
+        ctx.stroke();
+    };
+
+    const stopDrawing = () => {
+        if(mode !== 'SATISFACTION') return;
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.closePath();
+        setIsDrawing(false);
+    };
+
+    const getCoordinates = (event) => {
+        if (event.touches && event.touches[0]) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            return {
+                offsetX: event.touches[0].clientX - rect.left,
+                offsetY: event.touches[0].clientY - rect.top
+            };
+        }
+        return { offsetX: event.offsetX, offsetY: event.offsetY };
+    };
+
+    const clearSignature = () => {
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    };
+    // ---------------------------
 
     const checkHistory = async (regInput) => {
         if(regInput.length < 3) return;
@@ -129,8 +177,37 @@ const EstimateApp = ({ userId }) => {
             setItems([]); setLaborHours(''); setExcess('');
             setSaveStatus('IDLE');
             localStorage.removeItem('triple_mmm_draft'); 
+            if(canvasRef.current) clearSignature();
         }
     }
+
+    // --- GOOGLE SHEETS EXPORT ---
+    const downloadAccountingCSV = () => {
+        // Filter for Invoices only
+        const invoices = savedEstimates.filter(est => est.type === 'INVOICE');
+        
+        if (invoices.length === 0) return alert("No invoices found to export.");
+
+        // Create CSV Header
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Invoice Date,Invoice Number,Customer Name,Registration,Total Amount (£)\n";
+
+        // Add Data Rows
+        invoices.forEach(inv => {
+            const date = inv.createdAt ? new Date(inv.createdAt.seconds * 1000).toLocaleDateString() : 'N/A';
+            const row = `${date},${inv.invoiceNumber},${inv.customer},${inv.reg},${inv.totals?.finalDue.toFixed(2)}`;
+            csvContent += row + "\n";
+        });
+
+        // Trigger Download
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "TripleMMM_Accounting.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const saveToCloud = async (type) => {
         if (!name || !reg) return alert("Enter Customer Name & Reg");
@@ -170,7 +247,19 @@ const EstimateApp = ({ userId }) => {
             {/* LOGO HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px solid #cc0000', paddingBottom: '20px', marginBottom: '30px' }}>
                 <div>
-                    <img src={process.env.PUBLIC_URL + "/TripleMMM.jpg"} alt="TRIPLE MMM BODY REPAIRS" style={{ maxHeight: '120px', maxWidth: '100%' }} />
+                    {!logoError ? (
+                        <img 
+                            src={process.env.PUBLIC_URL + "/TripleMMM.jpg"} 
+                            alt="TRIPLE MMM BODY REPAIRS" 
+                            style={{ maxHeight: '120px', maxWidth: '100%', objectFit: 'contain' }}
+                            onError={() => setLogoError(true)} 
+                        />
+                    ) : (
+                        <div style={{ fontSize: '3em', fontWeight: '900', letterSpacing: '-2px', lineHeight:'0.9' }}>
+                            <span style={{color: 'black'}}>TRIPLE</span><br/>
+                            <span style={{color: '#cc0000'}}>MMM</span>
+                        </div>
+                    )}
                 </div>
                 
                 <div style={{ textAlign: 'right', fontSize: '0.9em', color: '#333', lineHeight: '1.4' }}>
@@ -218,7 +307,6 @@ const EstimateApp = ({ userId }) => {
 
             {mode !== 'SATISFACTION' && (
                 <>
-                    {/* ADD REPAIRS */}
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <input placeholder="Add Repair Item..." value={itemDesc} onChange={e => setItemDesc(e.target.value)} style={{ flexGrow: 1, padding: '10px' }} />
@@ -227,7 +315,6 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     </div>
                     
-                    {/* ITEMS LIST WITH DELETE BUTTON */}
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
                         <thead>
                             <tr style={{textAlign:'left', borderBottom:'2px solid #333', color: '#333'}}>
@@ -249,11 +336,9 @@ const EstimateApp = ({ userId }) => {
                         </tbody>
                     </table>
 
-                    {/* TOTALS */}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <div style={{ width: '300px', textAlign: 'right' }}>
                             <div className="no-print" style={{marginBottom:'10px'}}>
-                                {/* ADJUSTABLE LABOR RATE */}
                                 Labor: <input type="number" value={laborHours} onChange={e => setLaborHours(e.target.value)} style={{width:'50px'}} /> hrs @ £
                                 <input type="number" value={laborRate} onChange={e => setLaborRate(e.target.value)} style={{width:'50px'}} />
                             </div>
@@ -307,13 +392,29 @@ const EstimateApp = ({ userId }) => {
                     <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
                         I/We authorize payment to be made directly to the repairer in respect of the invoice number <strong>{invoiceNum}</strong> relative to this claim.
                     </p>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '80px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '80px', gap: '20px' }}>
                         <div style={{ width: '45%' }}>
-                            <div style={{ borderBottom: '1px solid #333', height: '1px', marginBottom: '10px' }}></div>
+                            {/* CANVAS SIGNATURE PAD */}
+                            <div style={{borderBottom: '1px solid #333', marginBottom: '10px', height: '100px', backgroundColor: '#f9f9f9', position: 'relative'}}>
+                                <canvas
+                                    ref={canvasRef}
+                                    width={350}
+                                    height={100}
+                                    onMouseDown={startDrawing}
+                                    onMouseMove={draw}
+                                    onMouseUp={stopDrawing}
+                                    onMouseLeave={stopDrawing}
+                                    onTouchStart={startDrawing}
+                                    onTouchMove={draw}
+                                    onTouchEnd={stopDrawing}
+                                    style={{width: '100%', height: '100%', touchAction: 'none'}}
+                                />
+                                <button onClick={clearSignature} style={{position: 'absolute', top: 5, right: 5, fontSize: '0.7em', padding: '2px 5px'}}>Clear</button>
+                            </div>
                             <strong>Customer Signature</strong>
                         </div>
                         <div style={{ width: '45%' }}>
-                            <div style={{ borderBottom: '1px solid #333', height: '1px', marginBottom: '10px' }}></div>
+                            <div style={{ borderBottom: '1px solid #333', height: '100px', marginBottom: '10px' }}></div>
                             <strong>Date</strong>
                         </div>
                     </div>
@@ -322,7 +423,7 @@ const EstimateApp = ({ userId }) => {
 
             <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '15px', background: 'white', borderTop: '1px solid #ccc', display: 'flex', justifyContent: 'center', gap: '15px', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
                 <button onClick={() => saveToCloud('ESTIMATE')} disabled={saveStatus === 'SAVING'} style={saveStatus === 'SUCCESS' ? successBtn : primaryBtn}>
-                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED!' : 'SAVE ESTIMATE')}
+                    {saveStatus === 'SAVING' ? 'SAVING...' : (saveStatus === 'SUCCESS' ? '✅ SAVED SUCCESSFULLY!' : 'SAVE ESTIMATE')}
                 </button>
                 {mode === 'ESTIMATE' && <button onClick={() => saveToCloud('INVOICE')} style={secondaryBtn}>GENERATE INVOICE</button>}
                 {mode === 'INVOICE' && <button onClick={() => setMode('SATISFACTION')} style={{...secondaryBtn, background: '#d97706'}}>CREATE SATISFACTION NOTE</button>}
@@ -331,7 +432,13 @@ const EstimateApp = ({ userId }) => {
             </div>
 
             <div className="no-print" style={{marginTop:'100px', paddingBottom:'80px'}}>
-                <h3 style={{color:'#888', borderBottom:'1px solid #eee'}}>Recent Jobs</h3>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #eee', marginBottom:'15px'}}>
+                    <h3 style={{color:'#888'}}>Recent Jobs</h3>
+                    <button onClick={downloadAccountingCSV} style={{background:'#0f766e', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer', fontSize:'0.9em'}}>
+                        📥 Export Accounting CSV
+                    </button>
+                </div>
+                
                 {savedEstimates.map(est => (
                     <div key={est.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', color: est.type === 'INVOICE' ? '#16a34a' : '#333'}}>
                         <span>{est.type === 'INVOICE' ? `📄 ${est.invoiceNumber}` : '📝 Estimate'} - {est.customer} ({est.reg})</span>
