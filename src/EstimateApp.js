@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs, setDoc, getDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// --- TRIPLE MMM CONFIG (Your Real Keys) ---
+// --- TRIPLE MMM CONFIG ---
 const firebaseConfig = {
   apiKey: "AIzaSyDVfPvFLoL5eqQ3WQB96n08K3thdclYXRQ",
   authDomain: "triple-mmm-body-repairs.firebaseapp.com",
@@ -29,10 +29,20 @@ const successBtn = { padding: '12px 24px', background: '#15803d', color: 'white'
 const secondaryBtn = { padding: '12px 24px', background: '#1e3a8a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' };
 
 const EstimateApp = ({ userId }) => {
-    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION', 'JOBCARD'
+    // Modes: 'ESTIMATE', 'INVOICE', 'SATISFACTION', 'JOBCARD', 'SETTINGS'
     const [mode, setMode] = useState('ESTIMATE');
     const [invoiceNum, setInvoiceNum] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
+
+    // --- SETTINGS STATE ---
+    const [settings, setSettings] = useState({
+        laborRate: '50',
+        vatRate: '0',
+        companyName: 'TRIPLE MMM',
+        address: '20A New Street, Stonehouse, ML9 3LT',
+        phone: '07501 728319',
+        email: 'markmonie72@gmail.com'
+    });
 
     // Inputs
     const [name, setName] = useState('');
@@ -56,19 +66,50 @@ const EstimateApp = ({ userId }) => {
 
     // Financials
     const [laborHours, setLaborHours] = useState('');
-    const [laborRate, setLaborRate] = useState('50');
-    const [vatRate, setVatRate] = useState('0');
+    const [laborRate, setLaborRate] = useState('50'); // Loaded from settings
+    const [vatRate, setVatRate] = useState('0'); // Loaded from settings
     const [excess, setExcess] = useState('');
     
     // System
     const [savedEstimates, setSavedEstimates] = useState([]);
     const [saveStatus, setSaveStatus] = useState('IDLE');
     const [logoError, setLogoError] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
 
-    // AUTO-LOAD
+    // LOAD SETTINGS FROM CLOUD
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const docRef = doc(db, 'settings', 'global');
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const s = docSnap.data();
+                    setSettings(s);
+                    // Apply defaults
+                    setLaborRate(s.laborRate || '50');
+                    setVatRate(s.vatRate || '0');
+                }
+            } catch (e) { console.log("Settings not loaded yet"); }
+        };
+        loadSettings();
+    }, []);
+
+    // SAVE SETTINGS TO CLOUD
+    const saveSettings = async () => {
+        try {
+            await setDoc(doc(db, 'settings', 'global'), settings);
+            alert("Settings Updated!");
+            setMode('ESTIMATE');
+            // Apply immediately
+            setLaborRate(settings.laborRate);
+            setVatRate(settings.vatRate);
+        } catch (e) { alert("Error saving settings: " + e.message); }
+    };
+
+    // AUTO-LOAD DRAFT
     useEffect(() => {
         const savedData = localStorage.getItem('triple_mmm_draft');
         if (savedData) {
@@ -76,23 +117,35 @@ const EstimateApp = ({ userId }) => {
             setName(draft.name || '');
             setReg(draft.reg || '');
             setItems(draft.items || []);
-            setLaborRate(draft.laborRate || '50');
+            setLaborRate(draft.laborRate || settings.laborRate);
             setClaimNum(draft.claimNum || '');
             setNetworkCode(draft.networkCode || '');
             setPhotos(draft.photos || []);
         }
-    }, []);
+    }, [settings]);
 
-    // AUTO-SAVE
+    // AUTO-SAVE DRAFT
     useEffect(() => {
+        if(mode === 'SETTINGS') return;
         const draft = { name, reg, items, laborRate, claimNum, networkCode, photos };
         localStorage.setItem('triple_mmm_draft', JSON.stringify(draft));
-    }, [name, reg, items, laborRate, claimNum, networkCode, photos]);
+    }, [name, reg, items, laborRate, claimNum, networkCode, photos, mode]);
 
+    // CLOUD SYNC
     useEffect(() => {
         const q = query(collection(db, 'estimates'), orderBy('createdAt', 'desc'));
         return onSnapshot(q, (snap) => setSavedEstimates(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     }, []);
+
+    // --- FILTERED SEARCH ---
+    const filteredEstimates = savedEstimates.filter(est => {
+        const search = searchTerm.toLowerCase();
+        return (
+            (est.customer && est.customer.toLowerCase().includes(search)) ||
+            (est.reg && est.reg.toLowerCase().includes(search)) ||
+            (est.invoiceNumber && est.invoiceNumber.toLowerCase().includes(search))
+        );
+    });
 
     // --- PHOTO UPLOAD ---
     const handlePhotoUpload = async (e) => {
@@ -114,17 +167,15 @@ const EstimateApp = ({ userId }) => {
         setPhotos(photos.filter((_, i) => i !== index));
     };
 
-    // --- PAID STATUS ---
     const togglePaid = async (id, currentStatus) => {
         const newStatus = currentStatus === 'PAID' ? 'UNPAID' : 'PAID';
         await updateDoc(doc(db, 'estimates', id), { status: newStatus });
     };
 
-    // --- SIGNATURE LOGIC (Thicker Line) ---
     const startDrawing = ({ nativeEvent }) => {
         const { offsetX, offsetY } = getCoordinates(nativeEvent);
         const ctx = canvasRef.current.getContext('2d');
-        ctx.lineWidth = 3; // THICKER LINE
+        ctx.lineWidth = 3; 
         ctx.lineCap = 'round';
         ctx.strokeStyle = '#000';
         ctx.beginPath();
@@ -164,7 +215,6 @@ const EstimateApp = ({ userId }) => {
         }
     };
 
-    // Clear signature when switching modes
     useEffect(() => { clearSignature(); }, [mode]);
 
     const checkHistory = async (regInput) => {
@@ -256,7 +306,7 @@ const EstimateApp = ({ userId }) => {
 
             await addDoc(collection(db, 'estimates'), {
                 type: type,
-                status: 'UNPAID', // Default status
+                status: 'UNPAID', 
                 invoiceNumber: finalInvNum,
                 customer: name, address, phone, email, claimNum, networkCode,
                 reg, mileage, makeModel,
@@ -273,6 +323,26 @@ const EstimateApp = ({ userId }) => {
         }
     };
 
+    if(mode === 'SETTINGS') {
+        return (
+            <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
+                <h2 style={{borderBottom:'2px solid #333', paddingBottom:'10px'}}>⚙️ System Settings</h2>
+                <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
+                    <label>Labor Rate (£/hr): <input value={settings.laborRate} onChange={e => setSettings({...settings, laborRate: e.target.value})} style={inputStyle} /></label>
+                    <label>Default VAT (%): <input value={settings.vatRate} onChange={e => setSettings({...settings, vatRate: e.target.value})} style={inputStyle} /></label>
+                    <label>Company Name: <input value={settings.companyName} onChange={e => setSettings({...settings, companyName: e.target.value})} style={inputStyle} /></label>
+                    <label>Address: <textarea value={settings.address} onChange={e => setSettings({...settings, address: e.target.value})} style={{...inputStyle, height:'60px'}} /></label>
+                    <label>Phone: <input value={settings.phone} onChange={e => setSettings({...settings, phone: e.target.value})} style={inputStyle} /></label>
+                    <label>Email: <input value={settings.email} onChange={e => setSettings({...settings, email: e.target.value})} style={inputStyle} /></label>
+                    <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
+                        <button onClick={saveSettings} style={primaryBtn}>SAVE SETTINGS</button>
+                        <button onClick={() => setMode('ESTIMATE')} style={secondaryBtn}>CANCEL</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: 'white' }}>
             
@@ -283,20 +353,20 @@ const EstimateApp = ({ userId }) => {
                         <img 
                             src={process.env.PUBLIC_URL + "/1768639609664.png"} 
                             alt="TRIPLE MMM BODY REPAIRS" 
-                            style={{ maxHeight: '120px', maxWidth: '100%', objectFit: 'contain' }}
+                            style={{ maxHeight: '200px', maxWidth: '100%', objectFit: 'contain', mixBlendMode: 'multiply' }}
                             onError={() => setLogoError(true)} 
                         />
                     ) : (
                         <div style={{ fontSize: '3em', fontWeight: '900', letterSpacing: '-2px', lineHeight:'0.9' }}>
-                            <span style={{color: 'black'}}>TRIPLE</span><br/>
-                            <span style={{color: '#cc0000'}}>MMM</span>
+                            <span style={{color: 'black'}}>{settings.companyName.split(' ')[0]}</span><br/>
+                            <span style={{color: '#cc0000'}}>{settings.companyName.split(' ').slice(1).join(' ')}</span>
                         </div>
                     )}
                 </div>
                 <div style={{ textAlign: 'right', fontSize: '0.9em', color: '#333', lineHeight: '1.4' }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '5px' }}>20A New Street, Stonehouse, ML9 3LT</div>
-                    <div>Tel: <strong>07501 728319</strong></div>
-                    <div>Email: markmonie72@gmail.com</div>
+                    <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '5px' }}>{settings.address}</div>
+                    <div>Tel: <strong>{settings.phone}</strong></div>
+                    <div>Email: {settings.email}</div>
                 </div>
             </div>
 
@@ -338,8 +408,7 @@ const EstimateApp = ({ userId }) => {
                     </div>
                     <input placeholder="Make / Model" value={makeModel} onChange={e => setMakeModel(e.target.value)} style={inputStyle} />
                     
-                    {/* PHOTO UPLOAD */}
-                    <div className="no-print" style={{marginTop:'10px', background:'#f0fdf4', padding:'10px', borderRadius:'4px', border:'1px dashed #16a34a'}}>
+                    <div className="no-print" style={{marginTop:'100px', background:'#f0fdf4', padding:'10px', borderRadius:'4px', border:'1px dashed #16a34a'}}>
                         <label style={{display:'block', marginBottom:'5px', fontSize:'0.9em', color:'#166534'}}>Add Damage Photos:</label>
                         <input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={uploading} />
                         {uploading && <span style={{fontSize:'0.8em'}}>Uploading...</span>}
@@ -347,7 +416,7 @@ const EstimateApp = ({ userId }) => {
                 </div>
             </div>
 
-            {/* PHOTOS DISPLAY */}
+            {/* PHOTOS */}
             {photos.length > 0 && (
                 <div style={{marginBottom:'20px', display:'flex', gap:'10px', flexWrap:'wrap'}}>
                     {photos.map((url, i) => (
@@ -359,7 +428,6 @@ const EstimateApp = ({ userId }) => {
                 </div>
             )}
 
-            {/* MAIN CONTENT AREA */}
             {mode !== 'SATISFACTION' && (
                 <>
                     <div className="no-print" style={{ background: '#f8fafc', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
@@ -393,7 +461,6 @@ const EstimateApp = ({ userId }) => {
                         </tbody>
                     </table>
 
-                    {/* FINANCIALS (HIDDEN IN JOB CARD) */}
                     {mode !== 'JOBCARD' && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <div style={{ width: '300px', textAlign: 'right' }}>
@@ -424,14 +491,13 @@ const EstimateApp = ({ userId }) => {
                         </div>
                     )}
 
-                    {/* SIGNATURES */}
                     {(mode === 'INVOICE' || mode === 'JOBCARD') && (
                         <div style={{ marginTop: '50px', padding: '20px', background: '#f9f9f9', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', border: '1px solid #ddd' }}>
                             {mode === 'INVOICE' && (
                                 <div>
                                     <h4 style={{margin:'0 0 10px 0'}}>PAYMENT DETAILS</h4>
                                     <div style={{fontSize:'0.9em', lineHeight:'1.6'}}>
-                                        Account Name: <strong>TRIPLE MMM BODY REPAIRS</strong><br/>
+                                        Account Name: <strong>{settings.companyName} BODY REPAIRS</strong><br/>
                                         Account No: <strong>06163462</strong><br/>
                                         Sort Code: <strong>80-22-60</strong><br/>
                                         Bank: <strong>BANK OF SCOTLAND</strong>
@@ -457,7 +523,7 @@ const EstimateApp = ({ userId }) => {
             {mode === 'SATISFACTION' && (
                 <div style={{ marginTop: '20px', padding: '30px', border: '2px solid #333' }}>
                     <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
-                        I/We being the owner/policyholder of vehicle registration <strong>{reg}</strong> hereby confirm that the repairs attended to by <strong>TRIPLE MMM BODY REPAIRS</strong> have been completed to my/our entire satisfaction.
+                        I/We being the owner/policyholder of vehicle registration <strong>{reg}</strong> hereby confirm that the repairs attended to by <strong>{settings.companyName} BODY REPAIRS</strong> have been completed to my/our entire satisfaction.
                     </p>
                     <p style={{ lineHeight: '1.8', fontSize: '1.1em' }}>
                         I/We authorize payment to be made directly to the repairer in respect of the invoice number <strong>{invoiceNum}</strong> relative to this claim.
@@ -490,17 +556,24 @@ const EstimateApp = ({ userId }) => {
                 {mode === 'INVOICE' && <button onClick={() => setMode('SATISFACTION')} style={{...secondaryBtn, background: '#d97706'}}>SATISFACTION NOTE</button>}
                 <button onClick={() => window.print()} style={{...secondaryBtn, background: '#333'}}>PRINT / PDF</button>
                 <button onClick={clearForm} style={{...secondaryBtn, background: '#ef4444'}}>NEW JOB</button>
+                <button onClick={() => setMode('SETTINGS')} style={{...secondaryBtn, background: '#666'}}>⚙️ SETTINGS</button>
             </div>
 
             <div className="no-print" style={{marginTop:'100px', paddingBottom:'80px'}}>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #eee', marginBottom:'15px'}}>
                     <h3 style={{color:'#888'}}>Recent Jobs</h3>
+                    <input 
+                        placeholder="Search jobs..." 
+                        value={searchTerm} 
+                        onChange={e => setSearchTerm(e.target.value)} 
+                        style={{padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}} 
+                    />
                     <button onClick={downloadAccountingCSV} style={{background:'#0f766e', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer', fontSize:'0.9em'}}>
                         📥 Export Accounting CSV
                     </button>
                 </div>
                 
-                {savedEstimates.map(est => (
+                {filteredEstimates.map(est => (
                     <div key={est.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center', backgroundColor: est.status === 'PAID' ? '#f0fdf4' : 'transparent'}}>
                         <div style={{color: est.type === 'INVOICE' ? '#16a34a' : '#333'}}>
                             <span>{est.type === 'INVOICE' ? `📄 ${est.invoiceNumber}` : '📝 Estimate'} - {est.customer} ({est.reg})</span>
